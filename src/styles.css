@@ -1,0 +1,930 @@
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+
+  color: #0f0f0f;
+  background-color: #f6f6f6;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+.container {
+  margin: 0;
+  padding: 1em;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  text-align: center;
+}
+
+
+.row {
+  display: flex;
+  justify-content: center;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+
+a:hover {
+  color: #535bf2;
+}
+
+h1 {
+  text-align: center;
+}
+
+input,
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  color: #0f0f0f;
+  background-color: #ffffff;
+  transition: border-color 0.25s;
+  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #396cd8;
+}
+button:active {
+  border-color: #396cd8;
+  background-color: #e8e8e8;
+}
+
+input,
+button {
+  outline: none;
+}
+
+
+.section {
+  margin: 0 0 2em 0;
+  padding: 1em;
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.servers-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  margin-top: 1em;
+}
+
+.mcp-server {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 0.75em 1em;
+  background-color: #ffffff;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.mcp-server h3 {
+  margin-top: 0;
+  color: #333;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.5em;
+}
+
+.server-details p {
+  margin: 0.5em 0;
+  font-size: 0.9em;
+}
+
+.server-details strong {
+  color: #555;
+}
+
+.error {
+  color: #e74c3c;
+  font-weight: bold;
+}
+
+#load-mcp-btn, .add-btn {
+  margin-bottom: 1em;
+  margin-right: 0.5em;
+}
+
+.button-group {
+  display: flex;
+  gap: 0.5em;
+  margin-bottom: 1em;
+  flex-wrap: wrap;
+}
+
+.server-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1em;
+}
+
+.server-header h3 {
+  margin: 0;
+}
+
+.server-actions {
+  display: flex;
+  gap: 0.5em;
+}
+
+.edit-btn, .delete-btn {
+  border-radius: 4px;
+  padding: 0.5em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  border: none;
+  color: white;
+}
+
+.edit-btn {
+  background-color: #2196f3;
+}
+
+.edit-btn:hover {
+  background-color: #1976d2;
+}
+
+.delete-btn {
+  background-color: #f44336;
+}
+
+.delete-btn:hover {
+  background-color: #d32f2f;
+}
+
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1000;
+}
+
+.modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  padding: 2em;
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 1.5em;
+  text-align: center;
+}
+
+.form-group {
+  margin-bottom: 1.5em;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5em;
+  font-weight: bold;
+  color: #333;
+}
+
+.form-group input[type="text"],
+.form-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-group textarea {
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 0.9em;
+  resize: vertical;
+  min-height: 200px;
+}
+
+.form-group input[readonly] {
+  background-color: #f5f5f5;
+  color: #666;
+}
+
+#env-vars {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 1em;
+  margin-bottom: 1em;
+  background-color: #fafafa;
+}
+
+.env-var {
+  display: flex;
+  gap: 0.5em;
+  margin-bottom: 0.5em;
+  align-items: center;
+}
+
+.env-var:last-child {
+  margin-bottom: 0;
+}
+
+.env-key {
+  flex: 1;
+}
+
+.env-value-container {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.env-value {
+  flex: 1;
+  padding-right: 2.5em;
+}
+
+.toggle-visibility-btn {
+  position: absolute;
+  right: 0.5em;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25em;
+  color: #666;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.toggle-visibility-btn:hover {
+  background-color: #f0f0f0;
+  color: #333;
+}
+
+.env-var button {
+  padding: 0.4em 0.8em;
+  font-size: 0.8em;
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.env-var button:hover {
+  background-color: #d32f2f;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1em;
+  margin-top: 2em;
+  padding-top: 1em;
+  border-top: 1px solid #eee;
+}
+
+.modal-actions button[type="submit"] {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+}
+
+.modal-actions button[type="submit"]:hover {
+  background-color: #45a049;
+}
+
+.notification-modal {
+  max-width: 400px;
+  text-align: center;
+}
+
+.modal-message {
+  margin: 1.5em 0;
+  text-align: left;
+}
+
+.modal-message p {
+  margin: 0.5em 0;
+  line-height: 1.4;
+}
+
+.primary-btn {
+  background-color: #2196f3;
+  color: white;
+  border: none;
+}
+
+.primary-btn:hover {
+  background-color: #1976d2;
+}
+
+.quick-install-btn {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.25s;
+  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+  margin-bottom: 1em;
+  margin-right: 0.5em;
+}
+
+.quick-install-btn:hover {
+  background-color: #45a049;
+}
+
+.quick-install-modal {
+  max-width: 800px;
+  max-height: 90vh;
+}
+
+.category-tabs {
+  display: flex;
+  gap: 0.5em;
+  margin-bottom: 1.5em;
+  flex-wrap: wrap;
+}
+
+.category-tab {
+  padding: 0.5em 1em;
+  border: 1px solid #ddd;
+  background: none;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9em;
+}
+
+.category-tab:hover {
+  background-color: #f5f5f5;
+}
+
+.category-tab.active {
+  background-color: #2196f3;
+  color: white;
+  border-color: #2196f3;
+}
+
+.preset-servers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1em;
+  margin-bottom: 1.5em;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.preset-server-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1em;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.server-info h4 {
+  margin: 0 0 0.5em 0;
+  color: #333;
+  font-size: 1.1em;
+}
+
+.server-description {
+  color: #666;
+  font-size: 0.9em;
+  line-height: 1.4;
+  margin: 0 0 1em 0;
+}
+
+.server-meta {
+  display: flex;
+  gap: 0.5em;
+  margin-bottom: 1em;
+  flex-wrap: wrap;
+}
+
+.category-badge {
+  background-color: #e3f2fd;
+  color: #1976d2;
+  padding: 0.25em 0.5em;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: 500;
+}
+
+.api-key-badge {
+  background-color: #fff3e0;
+  color: #f57c00;
+  padding: 0.25em 0.5em;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: 500;
+}
+
+.install-preset-btn {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5em 1em;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  align-self: flex-start;
+}
+
+.install-preset-btn:hover {
+  background-color: #45a049;
+}
+
+.no-servers-message {
+  text-align: center;
+  padding: 2em;
+  color: #666;
+}
+
+.api-key-modal {
+  max-width: 400px;
+}
+
+.api-key-help {
+  color: #666;
+  font-size: 0.85em;
+  margin-top: 0.5em;
+  display: block;
+  line-height: 1.3;
+}
+
+.header-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1em;
+}
+
+.header-section h2 {
+  margin: 0;
+}
+
+.settings-btn {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 0.5em;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-btn:hover {
+  background-color: #f5f5f5;
+  border-color: #999;
+  color: #333;
+}
+
+.settings-modal {
+  max-width: 500px;
+}
+
+.help-text {
+  color: #666;
+  font-size: 0.85em;
+  margin-top: 0.5em;
+  display: block;
+  line-height: 1.3;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.checkbox-label input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.checkbox-custom {
+  width: 20px;
+  height: 20px;
+  border: 3px solid #999;
+  border-radius: 4px;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.checkbox-label input[type="checkbox"]:checked + .checkbox-custom {
+  background-color: #2196f3;
+  border-color: #2196f3;
+}
+
+.checkbox-label input[type="checkbox"]:checked + .checkbox-custom::after {
+  content: '';
+}
+
+/* Dark mode for manual setting */
+:root[data-theme="dark"] {
+  color: #f6f6f6;
+  background-color: #2f2f2f;
+}
+
+/* Dark mode for system preference */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color: #f6f6f6;
+    background-color: #2f2f2f;
+  }
+}
+
+/* Dark mode styles for both cases */
+:root[data-theme="dark"] a:hover {
+  color: #24c8db;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) a:hover {
+    color: #24c8db;
+  }
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] button {
+  color: #ffffff;
+  background-color: #0f0f0f98;
+}
+
+:root[data-theme="dark"] button:active {
+  background-color: #0f0f0f69;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) input,
+  :root:not([data-theme]) button {
+    color: #ffffff;
+    background-color: #0f0f0f98;
+  }
+  
+  :root:not([data-theme]) button:active {
+    background-color: #0f0f0f69;
+  }
+}
+
+/* Dark mode styles for manual theme setting */
+:root[data-theme="dark"] .section {
+  background-color: rgba(64, 64, 64, 0.8);
+}
+
+:root[data-theme="dark"] .mcp-server {
+  background-color: #404040;
+  border-color: #555;
+}
+
+:root[data-theme="dark"] .mcp-server h3 {
+  color: #f6f6f6;
+  border-bottom-color: #555;
+}
+
+:root[data-theme="dark"] .server-details strong {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .edit-btn {
+  background-color: #1976d2;
+}
+
+:root[data-theme="dark"] .edit-btn:hover {
+  background-color: #1565c0;
+}
+
+:root[data-theme="dark"] .delete-btn {
+  background-color: #d32f2f;
+}
+
+:root[data-theme="dark"] .delete-btn:hover {
+  background-color: #c62828;
+}
+
+:root[data-theme="dark"] .modal-content {
+  background: #404040;
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .form-group label {
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .form-group input[readonly] {
+  background-color: #555;
+  color: #ccc;
+}
+
+:root[data-theme="dark"] #env-vars {
+  background-color: #555;
+  border-color: #666;
+}
+
+:root[data-theme="dark"] .modal-actions {
+  border-top-color: #555;
+}
+
+:root[data-theme="dark"] .quick-install-btn {
+  background-color: #388e3c;
+}
+
+:root[data-theme="dark"] .quick-install-btn:hover {
+  background-color: #2e7d32;
+}
+
+:root[data-theme="dark"] .category-tab {
+  border-color: #555;
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .category-tab:hover {
+  background-color: #555;
+}
+
+:root[data-theme="dark"] .category-tab.active {
+  background-color: #1976d2;
+  border-color: #1976d2;
+}
+
+:root[data-theme="dark"] .preset-server-card {
+  background: #404040;
+  border-color: #555;
+}
+
+:root[data-theme="dark"] .server-info h4 {
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .server-description {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .category-badge {
+  background-color: #1a237e;
+  color: #bbdefb;
+}
+
+:root[data-theme="dark"] .api-key-badge {
+  background-color: #4a148c;
+  color: #ffcc80;
+}
+
+:root[data-theme="dark"] .install-preset-btn {
+  background-color: #388e3c;
+}
+
+:root[data-theme="dark"] .install-preset-btn:hover {
+  background-color: #2e7d32;
+}
+
+:root[data-theme="dark"] .no-servers-message {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .api-key-help {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .toggle-visibility-btn {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .toggle-visibility-btn:hover {
+  background-color: #555;
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .settings-btn {
+  border-color: #555;
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .settings-btn:hover {
+  background-color: #555;
+  border-color: #777;
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .help-text {
+  color: #ccc;
+}
+
+:root[data-theme="dark"] .checkbox-custom {
+  border-color: #777;
+}
+
+:root[data-theme="dark"] .checkbox-label input[type="checkbox"]:checked + .checkbox-custom {
+  background-color: #1976d2;
+  border-color: #1976d2;
+}
+
+/* Dark mode styles for system preference */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .section {
+    background-color: rgba(64, 64, 64, 0.8);
+  }
+
+  :root:not([data-theme]) .mcp-server {
+    background-color: #404040;
+    border-color: #555;
+  }
+
+  :root:not([data-theme]) .mcp-server h3 {
+    color: #f6f6f6;
+    border-bottom-color: #555;
+  }
+
+  :root:not([data-theme]) .server-details strong {
+    color: #ccc;
+  }
+
+  :root:not([data-theme]) .edit-btn {
+    background-color: #1976d2;
+  }
+
+  :root:not([data-theme]) .edit-btn:hover {
+    background-color: #1565c0;
+  }
+
+  :root:not([data-theme]) .delete-btn {
+    background-color: #d32f2f;
+  }
+
+  :root:not([data-theme]) .delete-btn:hover {
+    background-color: #c62828;
+  }
+
+  :root:not([data-theme]) .modal-content {
+    background: #404040;
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .form-group label {
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .form-group input[readonly] {
+    background-color: #555;
+    color: #ccc;
+  }
+
+  :root:not([data-theme]) #env-vars {
+    background-color: #555;
+    border-color: #666;
+  }
+
+  :root:not([data-theme]) .modal-actions {
+    border-top-color: #555;
+  }
+
+  :root:not([data-theme]) .quick-install-btn {
+    background-color: #388e3c;
+  }
+
+  :root:not([data-theme]) .quick-install-btn:hover {
+    background-color: #2e7d32;
+  }
+
+  :root:not([data-theme]) .category-tab {
+    border-color: #555;
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .category-tab:hover {
+    background-color: #555;
+  }
+
+  :root:not([data-theme]) .category-tab.active {
+    background-color: #1976d2;
+    border-color: #1976d2;
+  }
+
+  :root:not([data-theme]) .preset-server-card {
+    background: #404040;
+    border-color: #555;
+  }
+
+  :root:not([data-theme]) .server-info h4 {
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .server-description {
+    color: #ccc;
+  }
+
+  :root:not([data-theme]) .category-badge {
+    background-color: #1a237e;
+    color: #bbdefb;
+  }
+
+  :root:not([data-theme]) .api-key-badge {
+    background-color: #4a148c;
+    color: #ffcc80;
+  }
+
+  :root:not([data-theme]) .install-preset-btn {
+    background-color: #388e3c;
+  }
+
+  :root:not([data-theme]) .install-preset-btn:hover {
+    background-color: #2e7d32;
+  }
+
+  :root:not([data-theme]) .no-servers-message {
+    color: #ccc;
+  }
+
+  :root:not([data-theme]) .api-key-help {
+    color: #ccc;
+  }
+
+  :root:not([data-theme]) .toggle-visibility-btn {
+    color: #ccc;
+  }
+
+  :root:not([data-theme]) .toggle-visibility-btn:hover {
+    background-color: #555;
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .settings-btn {
+    border-color: #555;
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .settings-btn:hover {
+    background-color: #555;
+    border-color: #777;
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .help-text {
+    color: #ccc;
+  }
+
+  :root:not([data-theme]) .checkbox-custom {
+    border-color: #777;
+  }
+
+  :root:not([data-theme]) .checkbox-label input[type="checkbox"]:checked + .checkbox-custom {
+    background-color: #1976d2;
+    border-color: #1976d2;
+  }
+}
