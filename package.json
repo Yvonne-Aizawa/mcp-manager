@@ -3,11 +3,26 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "description": "Desktop application for managing Model Context Protocol servers",
+  "author": "MCP Manager Contributors",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yvonne-Aizawa/mcp-manager.git"
+  },
+  "keywords": ["mcp", "model-context-protocol", "claude", "desktop", "tauri"],
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:debug": "tauri build --debug",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'No linter configured'",
+    "test": "echo 'No tests configured'",
+    "clean": "rm -rf dist src-tauri/target"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

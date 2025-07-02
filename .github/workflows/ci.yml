@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Check Node.js code
+        run: |
+          npm run lint || echo "No lint script configured"
+          npm run typecheck || echo "No typecheck script configured"
+
+      - name: Check Rust formatting
+        run: |
+          cd src-tauri
+          cargo fmt -- --check
+
+      - name: Run Rust clippy
+        run: |
+          cd src-tauri
+          cargo clippy -- -D warnings
+
+      - name: Run Rust tests
+        run: |
+          cd src-tauri
+          cargo test
+
+      - name: Build application (development)
+        run: npm run tauri build --debug
