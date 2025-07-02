@@ -467,6 +467,80 @@ button {
   font-weight: 500;
 }
 
+.api-key-badge.optional {
+  background-color: #e8f5e8;
+  color: #2e7d32;
+}
+
+.server-type-badge {
+  padding: 0.25em 0.5em;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.server-type-docker {
+  background-color: #e3f2fd;
+  color: #1565c0;
+}
+
+.server-type-npx {
+  background-color: #e8f5e8;
+  color: #2e7d32;
+}
+
+.server-type-uvx {
+  background-color: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.server-type-uv {
+  background-color: #fff3e0;
+  color: #f57c00;
+}
+
+.filter-tabs {
+  margin-bottom: 1.5em;
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+}
+
+.filter-tabs label {
+  font-weight: 600;
+  color: #333;
+  margin-right: 0.5em;
+}
+
+.category-tabs, .type-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+
+.type-tab {
+  padding: 0.4em 0.8em;
+  border: 1px solid #ddd;
+  background: none;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+.type-tab:hover {
+  background-color: #f5f5f5;
+}
+
+.type-tab.active {
+  background-color: #4caf50;
+  color: white;
+  border-color: #4caf50;
+}
+
 .install-preset-btn {
   background-color: #4caf50;
   color: white;
@@ -726,6 +800,11 @@ button {
   color: #ffcc80;
 }
 
+:root[data-theme="dark"] .api-key-badge.optional {
+  background-color: #1b5e20;
+  color: #a5d6a7;
+}
+
 :root[data-theme="dark"] .install-preset-btn {
   background-color: #388e3c;
 }
@@ -773,6 +852,44 @@ button {
 :root[data-theme="dark"] .checkbox-label input[type="checkbox"]:checked + .checkbox-custom {
   background-color: #1976d2;
   border-color: #1976d2;
+}
+
+:root[data-theme="dark"] .server-type-docker {
+  background-color: #1565c0;
+  color: #bbdefb;
+}
+
+:root[data-theme="dark"] .server-type-npx {
+  background-color: #2e7d32;
+  color: #c8e6c9;
+}
+
+:root[data-theme="dark"] .server-type-uvx {
+  background-color: #7b1fa2;
+  color: #e1bee7;
+}
+
+:root[data-theme="dark"] .server-type-uv {
+  background-color: #f57c00;
+  color: #ffe0b2;
+}
+
+:root[data-theme="dark"] .filter-tabs label {
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .type-tab {
+  border-color: #555;
+  color: #f6f6f6;
+}
+
+:root[data-theme="dark"] .type-tab:hover {
+  background-color: #555;
+}
+
+:root[data-theme="dark"] .type-tab.active {
+  background-color: #388e3c;
+  border-color: #388e3c;
 }
 
 /* Dark mode styles for system preference */
@@ -879,6 +996,11 @@ button {
     color: #ffcc80;
   }
 
+  :root:not([data-theme]) .api-key-badge.optional {
+    background-color: #1b5e20;
+    color: #a5d6a7;
+  }
+
   :root:not([data-theme]) .install-preset-btn {
     background-color: #388e3c;
   }
@@ -926,5 +1048,43 @@ button {
   :root:not([data-theme]) .checkbox-label input[type="checkbox"]:checked + .checkbox-custom {
     background-color: #1976d2;
     border-color: #1976d2;
+  }
+
+  :root:not([data-theme]) .server-type-docker {
+    background-color: #1565c0;
+    color: #bbdefb;
+  }
+
+  :root:not([data-theme]) .server-type-npx {
+    background-color: #2e7d32;
+    color: #c8e6c9;
+  }
+
+  :root:not([data-theme]) .server-type-uvx {
+    background-color: #7b1fa2;
+    color: #e1bee7;
+  }
+
+  :root:not([data-theme]) .server-type-uv {
+    background-color: #f57c00;
+    color: #ffe0b2;
+  }
+
+  :root:not([data-theme]) .filter-tabs label {
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .type-tab {
+    border-color: #555;
+    color: #f6f6f6;
+  }
+
+  :root:not([data-theme]) .type-tab:hover {
+    background-color: #555;
+  }
+
+  :root:not([data-theme]) .type-tab.active {
+    background-color: #388e3c;
+    border-color: #388e3c;
   }
 }

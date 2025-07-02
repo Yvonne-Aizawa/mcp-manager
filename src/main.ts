@@ -18,14 +18,23 @@ interface SaveResult {
   message: string;
 }
 
+interface ApiKeyRequirement {
+  name: string;
+  description: string;
+  required: boolean;
+}
+
 interface PresetServer {
   name: string;
   description: string;
   category: string;
+  serverType: string;
   command: string;
   args: string[];
   env?: { [key: string]: string };
+  apiKeys: ApiKeyRequirement[];
   requiresApiKey: boolean;
+  // Legacy fields for backward compatibility
   apiKeyName?: string;
   apiKeyDescription?: string;
 }
@@ -45,84 +54,6 @@ let appSettings: AppSettings = {
   darkMode: false
 };
 
-const PRESET_SERVERS: PresetServer[] = [
-  {
-    name: "dice",
-    description: "Random dice rolling utility for games and decision making",
-    category: "Utilities",
-    command: "uvx",
-    args: ["mcp-dice"],
-    requiresApiKey: false
-  },
-  {
-    name: "time",
-    description: "Time and timezone utilities for scheduling and time management",
-    category: "Utilities", 
-    command: "uvx",
-    args: ["mcp-server-time", "--local-timezone=UTC"],
-    requiresApiKey: false
-  },
-  {
-    name: "sequential-thinking",
-    description: "Enhanced reasoning capabilities for complex problem solving",
-    category: "AI Tools",
-    command: "docker",
-    args: ["run", "--rm", "-i", "mcp/sequentialthinking"],
-    requiresApiKey: false
-  },
-  {
-    name: "browsermcp",
-    description: "Web browsing capabilities for accessing and interacting with websites",
-    category: "Web Tools",
-    command: "npx",
-    args: ["@browsermcp/mcp@latest"],
-    requiresApiKey: false
-  },
-  {
-    name: "brave-search",
-    description: "Web search functionality using Brave Search API",
-    category: "Search",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-brave-search"],
-    requiresApiKey: true,
-    apiKeyName: "BRAVE_API_KEY",
-    apiKeyDescription: "Get your API key from https://brave.com/search/api/"
-  },
-  {
-    name: "openweather",
-    description: "Weather information and forecasts using OpenWeatherMap API",
-    category: "Weather",
-    command: "docker",
-    args: ["run", "-i", "--rm", "-e", "OWM_API_KEY", "mcp/openweather"],
-    requiresApiKey: true,
-    apiKeyName: "OWM_API_KEY",
-    apiKeyDescription: "Get your API key from https://openweathermap.org/api"
-  },
-  {
-    name: "context7",
-    description: "Documentation search and code context analysis",
-    category: "Development",
-    command: "npx",
-    args: ["-y", "@upstash/context7-mcp@latest"],
-    requiresApiKey: false
-  },
-  {
-    name: "docker",
-    description: "Docker container management and operations",
-    category: "Development",
-    command: "uvx",
-    args: ["--from", "git+https://github.com/ckreiling/mcp-server-docker", "mcp-server-docker"],
-    requiresApiKey: false
-  },
-  {
-    name: "desktop-commander",
-    description: "Desktop automation and system control capabilities",
-    category: "System",
-    command: "docker",
-    args: ["run", "-i", "--rm", "mcp/desktop-commander"],
-    requiresApiKey: false
-  }
-];
 
 // Modal types
 type ModalType = 'notification' | 'confirmation';
@@ -209,22 +140,78 @@ function closeNotificationModal() {
   (window as any).currentModalOptions = null;
 }
 
-function loadSettings() {
-  const savedSettings = localStorage.getItem('mcp-manager-settings');
-  if (savedSettings) {
-    try {
-      appSettings = { ...appSettings, ...JSON.parse(savedSettings) };
-    } catch (error) {
-      console.warn('Failed to load settings:', error);
-    }
+async function loadSettings() {
+  try {
+    // First check for localStorage migration
+    await migrateFromLocalStorage();
+    
+    // Load settings from file
+    const savedSettings: AppSettings = await invoke("load_app_settings");
+    appSettings = { ...appSettings, ...savedSettings };
+    
+    // Apply dark mode setting
+    applyDarkMode(appSettings.darkMode);
+  } catch (error) {
+    console.warn('Failed to load settings:', error);
+    // Fall back to default settings
+    appSettings = {
+      claudeConfigPath: '',
+      darkMode: false
+    };
   }
-  
-  // Apply dark mode setting
-  applyDarkMode(appSettings.darkMode);
 }
 
-function saveSettings() {
-  localStorage.setItem('mcp-manager-settings', JSON.stringify(appSettings));
+async function saveSettings() {
+  try {
+    const result: SaveResult = await invoke("save_app_settings", { settings: appSettings });
+    if (!result.success) {
+      console.error('Failed to save settings:', result.message);
+    }
+  } catch (error) {
+    console.error('Error saving settings:', error);
+  }
+}
+
+async function migrateFromLocalStorage() {
+  // Check if localStorage has settings and no file exists yet
+  const localStorageSettings = localStorage.getItem('mcp-manager-settings');
+  if (!localStorageSettings) {
+    return; // No migration needed
+  }
+  
+  try {
+    // Check if settings file already exists
+    const settingsPath: string = await invoke("get_settings_path");
+    
+    // Try to load existing file settings to see if migration already happened
+    try {
+      await invoke("load_app_settings");
+      // File exists and is readable, migration already done
+      localStorage.removeItem('mcp-manager-settings');
+      return;
+    } catch {
+      // File doesn't exist or is corrupted, proceed with migration
+    }
+    
+    // Parse localStorage settings
+    const localSettings = JSON.parse(localStorageSettings);
+    const migratedSettings: AppSettings = {
+      claudeConfigPath: localSettings.claudeConfigPath || '',
+      darkMode: localSettings.darkMode || false
+    };
+    
+    // Save to file
+    const result: SaveResult = await invoke("save_app_settings", { settings: migratedSettings });
+    if (result.success) {
+      console.log('Successfully migrated settings from localStorage to file');
+      localStorage.removeItem('mcp-manager-settings');
+      
+      // Show user notification about migration
+      showNotification("Settings Migrated", "Your settings have been migrated to a more persistent storage location.");
+    }
+  } catch (error) {
+    console.warn('Failed to migrate settings from localStorage:', error);
+  }
 }
 
 function applyDarkMode(enabled: boolean) {
@@ -297,11 +284,14 @@ async function handleSettingsSubmit(e: Event) {
   appSettings.claudeConfigPath = claudeConfigPath;
   appSettings.darkMode = darkMode;
   
-  saveSettings();
-  applyDarkMode(darkMode);
-  
-  showNotification("Success", "Settings saved successfully!");
-  closeModal();
+  try {
+    await saveSettings();
+    applyDarkMode(darkMode);
+    showNotification("Success", "Settings saved successfully!");
+    closeModal();
+  } catch (error) {
+    showNotification("Error", `Failed to save settings: ${error}`);
+  }
 }
 
 async function loadMcpServers() {
@@ -413,82 +403,147 @@ function addNewServer() {
   showEditModal(emptyServer);
 }
 
-function showQuickInstallModal() {
+async function showQuickInstallModal() {
   if (!modalEl) return;
   
-  // Get current servers to filter out already installed ones
-  const currentServers = getCurrentServerNames();
-  const availableServers = PRESET_SERVERS.filter(server => !currentServers.includes(server.name));
-  
-  // Group servers by category
-  const categories = [...new Set(availableServers.map(server => server.category))];
-  
-  const categoryTabs = categories.map(category => `
-    <button class="category-tab" data-category="${category}">${category}</button>
-  `).join('');
-  
-  const serverCards = availableServers.map(server => `
-    <div class="preset-server-card" data-category="${server.category}">
-      <div class="server-info">
-        <h4>${server.name}</h4>
-        <p class="server-description">${server.description}</p>
-        <div class="server-meta">
-          <span class="category-badge">${server.category}</span>
-          ${server.requiresApiKey ? '<span class="api-key-badge">API Key Required</span>' : ''}
-        </div>
-      </div>
-      <button class="install-preset-btn" onclick="installPresetServer('${server.name}')">Install</button>
-    </div>
-  `).join('');
-  
-  modalEl.innerHTML = `
-    <div class="modal-overlay" onclick="closeModal()">
-      <div class="modal-content quick-install-modal" onclick="event.stopPropagation()">
-        <h2>Quick Install MCP Servers</h2>
-        
-        ${availableServers.length === 0 ? 
-          '<div class="no-servers-message"><p>All preset servers are already installed!</p></div>' :
-          `<div class="category-tabs">
-            <button class="category-tab active" data-category="all">All</button>
-            ${categoryTabs}
+  try {
+    // Get preset servers from Rust backend
+    const presetServers: PresetServer[] = await invoke("get_preset_servers");
+    
+    // Get current servers to filter out already installed ones
+    const currentServers = getCurrentServerNames();
+    const availableServers = presetServers.filter(server => !currentServers.includes(server.name));
+    
+    // Get categories and server types from backend
+    const categories: string[] = await invoke("get_preset_server_categories");
+    const serverTypes: string[] = await invoke("get_server_types");
+    
+    const categoryTabs = categories.map(category => `
+      <button class="category-tab" data-category="${category}">${category}</button>
+    `).join('');
+    
+    const typeTabs = serverTypes.map(type => `
+      <button class="type-tab" data-type="${type}">${type.toUpperCase()}</button>
+    `).join('');
+    
+    const serverCards = availableServers.map(server => {
+      // Check API key requirements (new format or legacy)
+      const apiKeys = server.apiKeys && server.apiKeys.length > 0 ? server.apiKeys : 
+        (server.apiKeyName ? [{name: server.apiKeyName, description: '', required: true}] : []);
+      
+      const requiredKeys = apiKeys.filter(key => key.required);
+      const optionalKeys = apiKeys.filter(key => !key.required);
+      
+      let apiKeyBadge = '';
+      if (requiredKeys.length > 0 && optionalKeys.length > 0) {
+        apiKeyBadge = `<span class="api-key-badge">API Keys: ${requiredKeys.length} required, ${optionalKeys.length} optional</span>`;
+      } else if (requiredKeys.length > 0) {
+        apiKeyBadge = `<span class="api-key-badge">${requiredKeys.length > 1 ? `${requiredKeys.length} API Keys Required` : 'API Key Required'}</span>`;
+      } else if (optionalKeys.length > 0) {
+        apiKeyBadge = `<span class="api-key-badge optional">Optional API Key</span>`;
+      }
+      
+      return `
+        <div class="preset-server-card" data-category="${server.category}" data-type="${server.serverType}">
+          <div class="server-info">
+            <h4>${server.name}</h4>
+            <p class="server-description">${server.description}</p>
+            <div class="server-meta">
+              <span class="category-badge">${server.category}</span>
+              <span class="server-type-badge server-type-${server.serverType}">${server.serverType.toUpperCase()}</span>
+              ${apiKeyBadge}
+            </div>
           </div>
+          <button class="install-preset-btn" onclick="installPresetServer('${server.name}')">Install</button>
+        </div>
+      `;
+    }).join('');
+    
+    modalEl.innerHTML = `
+      <div class="modal-overlay" onclick="closeModal()">
+        <div class="modal-content quick-install-modal" onclick="event.stopPropagation()">
+          <h2>Quick Install MCP Servers</h2>
           
-          <div class="preset-servers-grid">
-            ${serverCards}
-          </div>`
-        }
-        
-        <div class="modal-actions">
-          <button type="button" onclick="closeModal()">Close</button>
+          ${availableServers.length === 0 ? 
+            '<div class="no-servers-message"><p>All preset servers are already installed!</p></div>' :
+            `<div class="filter-tabs">
+              <div class="category-tabs">
+                <label>By Category:</label>
+                <button class="category-tab active" data-category="all">All</button>
+                ${categoryTabs}
+              </div>
+              <div class="type-tabs">
+                <label>By Type:</label>
+                <button class="type-tab active" data-type="all">All</button>
+                ${typeTabs}
+              </div>
+            </div>
+            
+            <div class="preset-servers-grid">
+              ${serverCards}
+            </div>`
+          }
+          
+          <div class="modal-actions">
+            <button type="button" onclick="closeModal()">Close</button>
+          </div>
         </div>
       </div>
-    </div>
-  `;
-  
-  modalEl.style.display = 'block';
-  
-  // Add category filter functionality
-  document.querySelectorAll('.category-tab').forEach(tab => {
-    tab.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      const selectedCategory = target.dataset.category;
-      
-      // Update active tab
-      document.querySelectorAll('.category-tab').forEach(t => t.classList.remove('active'));
-      target.classList.add('active');
-      
-      // Filter server cards
+    `;
+    
+    modalEl.style.display = 'block';
+    
+    // Add filtering functionality
+    let selectedCategory = 'all';
+    let selectedType = 'all';
+    
+    function filterCards() {
       document.querySelectorAll('.preset-server-card').forEach(card => {
         const cardElement = card as HTMLElement;
         const cardCategory = cardElement.dataset.category;
-        if (selectedCategory === 'all' || cardCategory === selectedCategory) {
+        const cardType = cardElement.dataset.type;
+        
+        const categoryMatch = selectedCategory === 'all' || cardCategory === selectedCategory;
+        const typeMatch = selectedType === 'all' || cardType === selectedType;
+        
+        if (categoryMatch && typeMatch) {
           cardElement.style.display = 'block';
         } else {
           cardElement.style.display = 'none';
         }
       });
+    }
+    
+    // Category filter functionality
+    document.querySelectorAll('.category-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        selectedCategory = target.dataset.category || 'all';
+        
+        // Update active tab
+        document.querySelectorAll('.category-tab').forEach(t => t.classList.remove('active'));
+        target.classList.add('active');
+        
+        filterCards();
+      });
     });
-  });
+    
+    // Type filter functionality
+    document.querySelectorAll('.type-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        selectedType = target.dataset.type || 'all';
+        
+        // Update active tab
+        document.querySelectorAll('.type-tab').forEach(t => t.classList.remove('active'));
+        target.classList.add('active');
+        
+        filterCards();
+      });
+    });
+  } catch (error) {
+    showNotification("Error", `Failed to load preset servers: ${error}`);
+  }
 }
 
 function getCurrentServerNames(): string[] {
@@ -499,18 +554,28 @@ function getCurrentServerNames(): string[] {
 }
 
 async function installPresetServer(serverName: string) {
-  const server = PRESET_SERVERS.find(s => s.name === serverName);
-  if (!server) {
-    showNotification("Error", `Server "${serverName}" not found in presets`);
-    return;
-  }
-  
-  if (server.requiresApiKey && server.apiKeyName) {
-    // Show API key input modal
-    showApiKeyModal(server);
-  } else {
-    // Install directly
-    await performServerInstallation(server, {});
+  try {
+    const server: PresetServer | null = await invoke("get_preset_server_by_name", { name: serverName });
+    if (!server) {
+      showNotification("Error", `Server "${serverName}" not found in presets`);
+      return;
+    }
+    
+    // Check if server requires API keys (either new format or legacy)
+    const hasApiKeys = (server.apiKeys && server.apiKeys.length > 0) || 
+                      (server.requiresApiKey && server.apiKeyName);
+    const hasRequiredApiKeys = server.apiKeys?.some(key => key.required) || 
+                              (server.requiresApiKey && server.apiKeyName);
+    
+    if (hasApiKeys) {
+      // Show API key input modal
+      showApiKeyModal(server);
+    } else {
+      // Install directly (no API keys required)
+      await performServerInstallation(server, {});
+    }
+  } catch (error) {
+    showNotification("Error", `Failed to get server details: ${error}`);
   }
 }
 
@@ -539,22 +604,49 @@ async function performServerInstallation(server: PresetServer, env: { [key: stri
 function showApiKeyModal(server: PresetServer) {
   if (!modalEl) return;
   
+  // Use new apiKeys structure if available, fallback to legacy fields
+  const apiKeys = server.apiKeys && server.apiKeys.length > 0 ? server.apiKeys : 
+    (server.apiKeyName ? [{
+      name: server.apiKeyName,
+      description: server.apiKeyDescription || "API key required",
+      required: true
+    }] : []);
+  
+  if (apiKeys.length === 0) {
+    showNotification("Error", "No API key configuration found for this server");
+    return;
+  }
+  
+  const requiredKeys = apiKeys.filter(key => key.required);
+  const optionalKeys = apiKeys.filter(key => !key.required);
+  
+  const keyInputs = apiKeys.map(apiKey => `
+    <div class="form-group">
+      <label for="api-key-${apiKey.name}">
+        ${apiKey.name}${apiKey.required ? ' *' : ' (optional)'}:
+      </label>
+      <input type="password" 
+             id="api-key-${apiKey.name}" 
+             placeholder="Enter your ${apiKey.name}" 
+             ${apiKey.required ? 'required' : ''}>
+      <small class="api-key-help">${apiKey.description}</small>
+    </div>
+  `).join('');
+  
   modalEl.innerHTML = `
     <div class="modal-overlay" onclick="closeModal()">
       <div class="modal-content api-key-modal" onclick="event.stopPropagation()">
-        <h2>API Key Required</h2>
-        <p>The <strong>${server.name}</strong> server requires an API key to function.</p>
+        <h2>API Keys Required</h2>
+        <p>The <strong>${server.name}</strong> server requires API keys to function.</p>
+        ${requiredKeys.length > 0 ? `<p><strong>Required:</strong> ${requiredKeys.length} API key(s)</p>` : ''}
+        ${optionalKeys.length > 0 ? `<p><strong>Optional:</strong> ${optionalKeys.length} API key(s) for enhanced features</p>` : ''}
         
         <form id="api-key-form">
-          <div class="form-group">
-            <label for="api-key-input">${server.apiKeyName}:</label>
-            <input type="password" id="api-key-input" placeholder="Enter your API key" required>
-            <small class="api-key-help">${server.apiKeyDescription}</small>
-          </div>
+          ${keyInputs}
           
           <div class="modal-actions">
             <button type="button" onclick="closeModal()">Cancel</button>
-            <button type="submit" class="primary-btn">Install with API Key</button>
+            <button type="submit" class="primary-btn">Install with API Keys</button>
           </div>
         </form>
       </div>
@@ -567,16 +659,28 @@ function showApiKeyModal(server: PresetServer) {
   document.querySelector("#api-key-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     
-    const apiKeyInput = document.querySelector("#api-key-input") as HTMLInputElement;
-    const apiKey = apiKeyInput.value.trim();
+    const env: { [key: string]: string } = {};
+    let hasRequiredKeys = true;
     
-    if (!apiKey) {
-      showNotification("Validation Error", "Please enter an API key");
-      return;
+    // Collect all API keys
+    for (const apiKey of apiKeys) {
+      const input = document.querySelector(`#api-key-${apiKey.name}`) as HTMLInputElement;
+      const value = input?.value.trim() || '';
+      
+      if (apiKey.required && !value) {
+        showNotification("Validation Error", `Please enter ${apiKey.name}`);
+        hasRequiredKeys = false;
+        break;
+      }
+      
+      if (value) {
+        env[apiKey.name] = value;
+      }
     }
     
-    const env = { [server.apiKeyName!]: apiKey };
-    await performServerInstallation(server, env);
+    if (hasRequiredKeys) {
+      await performServerInstallation(server, env);
+    }
   });
 }
 
@@ -908,12 +1012,12 @@ async function handleImportSubmit(e: Event) {
 (window as any).handleModalCancel = handleModalCancel;
 (window as any).closeNotificationModal = closeNotificationModal;
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   mcpListEl = document.querySelector("#mcp-list");
   modalEl = document.querySelector("#modal");
   
   // Load settings first
-  loadSettings();
+  await loadSettings();
   
   // Attach settings button event listener
   document.querySelector("#settings-btn")?.addEventListener("click", showSettingsModal);
