@@ -18,6 +18,22 @@ interface SaveResult {
   message: string;
 }
 
+interface JsonErrorInfo {
+  error_type: string;
+  message: string;
+  line?: number;
+  column?: number;
+  suggestion?: string;
+  has_backup: boolean;
+}
+
+interface BackupInfo {
+  path: string;
+  created: string;
+  size: number;
+  is_valid: boolean;
+}
+
 interface ApiKeyRequirement {
   name: string;
   description: string;
@@ -104,6 +120,197 @@ function showNotification(title: string, message: string) {
   });
 }
 
+async function showJsonErrorModal(errorInfo: JsonErrorInfo) {
+  if (!modalEl) return;
+  
+  const locationInfo = errorInfo.line && errorInfo.column ? 
+    `<p><strong>Location:</strong> Line ${errorInfo.line}, Column ${errorInfo.column}</p>` : '';
+  
+  const suggestionInfo = errorInfo.suggestion ? 
+    `<div class="error-suggestion">
+      <strong>💡 Suggestion:</strong>
+      <p>${errorInfo.suggestion}</p>
+    </div>` : '';
+  
+  const backupSection = errorInfo.has_backup ? 
+    `<div class="backup-section">
+      <p><strong>🔄 Good news!</strong> A backup of your configuration was found.</p>
+      <button id="restore-backup-btn" class="primary-btn">Restore from Backup</button>
+      <button id="show-backup-info-btn" class="secondary-btn">Show Backup Details</button>
+    </div>` : '';
+  
+  modalEl.innerHTML = `
+    <div class="modal-overlay" onclick="closeModal()">
+      <div class="modal-content json-error-modal" onclick="event.stopPropagation()">
+        <h2>⚠️ Configuration File Error</h2>
+        
+        <div class="error-details">
+          <p><strong>Problem:</strong> ${errorInfo.message}</p>
+          ${locationInfo}
+          
+          ${suggestionInfo}
+          
+          <div class="error-actions">
+            <button id="check-again-btn" class="primary-btn">🔄 Check Again</button>
+            <button id="open-config-btn" class="secondary-btn">📝 Open Config File</button>
+            <button id="create-backup-btn" class="secondary-btn">💾 Create Manual Backup</button>
+          </div>
+          
+          ${backupSection}
+        </div>
+        
+        <div class="modal-actions">
+          <button type="button" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  modalEl.style.display = 'block';
+  
+  // Add event listeners
+  const checkAgainBtn = document.getElementById('check-again-btn');
+  if (checkAgainBtn) {
+    checkAgainBtn.addEventListener('click', async () => {
+      try {
+        // Close the current error modal
+        closeModal();
+        
+        // Show loading indicator in the main area
+        if (mcpListEl) {
+          mcpListEl.innerHTML = '<p>🔄 Checking configuration...</p>';
+        }
+        
+        // Retry loading the servers
+        await loadMcpServers();
+        
+        // If we get here without error, show success message
+        showNotification("Success", "Configuration loaded successfully! ✅");
+      } catch (error) {
+        // If it still fails, show the error again
+        handleJsonError(error as string);
+      }
+    });
+  }
+  
+  const openConfigBtn = document.getElementById('open-config-btn');
+  if (openConfigBtn) {
+    openConfigBtn.addEventListener('click', async () => {
+      try {
+        const configPath = await invoke("get_default_config_path");
+        await invoke("open_file_location", { path: configPath });
+      } catch (error) {
+        showNotification("Error", `Failed to open config location: ${error}`);
+      }
+    });
+  }
+  
+  const restoreBackupBtn = document.getElementById('restore-backup-btn');
+  if (restoreBackupBtn) {
+    restoreBackupBtn.addEventListener('click', async () => {
+      try {
+        const result: SaveResult = await invoke("restore_from_backup");
+        if (result.success) {
+          showNotification("Success", result.message);
+          closeModal();
+          loadMcpServers(); // Reload after restoration
+        } else {
+          showNotification("Error", result.message);
+        }
+      } catch (error) {
+        showNotification("Error", `Failed to restore backup: ${error}`);
+      }
+    });
+  }
+  
+  const createBackupBtn = document.getElementById('create-backup-btn');
+  if (createBackupBtn) {
+    createBackupBtn.addEventListener('click', async () => {
+      try {
+        const result: SaveResult = await invoke("create_manual_backup");
+        showNotification(result.success ? "Success" : "Error", result.message);
+      } catch (error) {
+        showNotification("Error", `Failed to create backup: ${error}`);
+      }
+    });
+  }
+  
+  const showBackupInfoBtn = document.getElementById('show-backup-info-btn');
+  if (showBackupInfoBtn) {
+    showBackupInfoBtn.addEventListener('click', async () => {
+      try {
+        const backupInfo: BackupInfo | null = await invoke("get_backup_info");
+        if (backupInfo) {
+          showBackupInfoModal(backupInfo);
+        } else {
+          showNotification("Info", "No backup information available");
+        }
+      } catch (error) {
+        showNotification("Error", `Failed to get backup info: ${error}`);
+      }
+    });
+  }
+}
+
+function showBackupInfoModal(backupInfo: BackupInfo) {
+  if (!modalEl) return;
+  
+  const sizeInKB = (backupInfo.size / 1024).toFixed(2);
+  const validityIcon = backupInfo.is_valid ? "✅" : "❌";
+  const validityText = backupInfo.is_valid ? "Valid JSON" : "Invalid/Corrupted";
+  
+  modalEl.innerHTML = `
+    <div class="modal-overlay" onclick="closeModal()">
+      <div class="modal-content backup-info-modal" onclick="event.stopPropagation()">
+        <h2>📋 Backup Information</h2>
+        
+        <div class="backup-details">
+          <p><strong>File:</strong> ${backupInfo.path}</p>
+          <p><strong>Created:</strong> ${backupInfo.created}</p>
+          <p><strong>Size:</strong> ${sizeInKB} KB</p>
+          <p><strong>Status:</strong> ${validityIcon} ${validityText}</p>
+        </div>
+        
+        ${backupInfo.is_valid ? 
+          `<div class="backup-actions">
+            <button id="restore-this-backup-btn" class="primary-btn">🔄 Restore This Backup</button>
+          </div>` :
+          `<div class="backup-warning">
+            <p>⚠️ This backup file appears to be corrupted and cannot be safely restored.</p>
+          </div>`
+        }
+        
+        <div class="modal-actions">
+          <button type="button" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  modalEl.style.display = 'block';
+  
+  // Add restore functionality if backup is valid
+  if (backupInfo.is_valid) {
+    const restoreThisBackupBtn = document.getElementById('restore-this-backup-btn');
+    if (restoreThisBackupBtn) {
+      restoreThisBackupBtn.addEventListener('click', async () => {
+        try {
+          const result: SaveResult = await invoke("restore_from_backup");
+          if (result.success) {
+            showNotification("Success", result.message);
+            closeModal();
+            loadMcpServers(); // Reload after restoration
+          } else {
+            showNotification("Error", result.message);
+          }
+        } catch (error) {
+          showNotification("Error", `Failed to restore backup: ${error}`);
+        }
+      });
+    }
+  }
+}
+
 function showConfirmation(title: string, message: string, onConfirm: () => void, onCancel?: () => void) {
   showModal({
     title,
@@ -181,7 +388,7 @@ async function migrateFromLocalStorage() {
   
   try {
     // Check if settings file already exists
-    const settingsPath: string = await invoke("get_settings_path");
+    await invoke("get_settings_path");
     
     // Try to load existing file settings to see if migration already happened
     try {
@@ -241,8 +448,13 @@ async function showSettingsModal() {
         <form id="settings-form">
           <div class="form-group">
             <label for="claude-config-path">Claude Desktop Config Path:</label>
-            <input type="text" id="claude-config-path" value="${appSettings.claudeConfigPath}" 
-                   placeholder="${defaultPath}">
+            <div class="config-path-section">
+              <input type="text" id="claude-config-path" value="${appSettings.claudeConfigPath}" 
+                     placeholder="${defaultPath}">
+              <button type="button" id="open-config-btn" class="secondary-btn" title="Open config file location">
+                📁 Open Config
+              </button>
+            </div>
             <small class="help-text">Leave empty to use the default path: ${defaultPath}</small>
           </div>
           
@@ -273,6 +485,57 @@ async function showSettingsModal() {
     const target = e.target as HTMLInputElement;
     applyDarkMode(target.checked);
   });
+  
+  // Handle open config button
+  document.querySelector("#open-config-btn")?.addEventListener("click", async () => {
+    try {
+      // Determine which config path to use
+      const configPathInput = document.querySelector("#claude-config-path") as HTMLInputElement;
+      const customPath = configPathInput.value.trim();
+      
+      let configPath: string;
+      if (customPath) {
+        // Use custom path if specified
+        configPath = customPath;
+      } else {
+        // Use default path
+        configPath = await invoke("get_default_config_path");
+      }
+      
+      // Check if file exists before opening
+      try {
+        // Try to read the file to check if it exists
+        await invoke("parse_claude_json", { customPath: customPath || null });
+        // If successful, open the file location
+        await invoke("open_file_location", { path: configPath });
+      } catch (error) {
+        // If file doesn't exist, still try to open the directory
+        const errorMsg = error as string;
+        if (errorMsg.includes("Failed to read")) {
+          // File doesn't exist, open the directory instead
+          const pathParts = configPath.split(/[/\\]/);
+          pathParts.pop(); // Remove filename
+          const dirPath = pathParts.join(configPath.includes('/') ? '/' : '\\');
+          
+          try {
+            await invoke("open_file_location", { path: dirPath });
+            showNotification("Info", "Config file doesn't exist yet. Opened the parent directory where it would be created.");
+          } catch (dirError) {
+            showNotification("Error", `Failed to open config location: ${dirError}`);
+          }
+        } else {
+          // Other error, try opening anyway
+          try {
+            await invoke("open_file_location", { path: configPath });
+          } catch (openError) {
+            showNotification("Error", `Failed to open config location: ${openError}`);
+          }
+        }
+      }
+    } catch (error) {
+      showNotification("Error", `Failed to open config location: ${error}`);
+    }
+  });
 }
 
 async function handleSettingsSubmit(e: Event) {
@@ -300,8 +563,26 @@ async function loadMcpServers() {
     const servers: McpServerInfo[] = await invoke("parse_claude_json", { customPath });
     displayMcpServers(servers);
   } catch (error) {
+    handleJsonError(error as string);
+  }
+}
+
+function handleJsonError(errorString: string) {
+  if (errorString.startsWith("JSON_ERROR:")) {
+    // Enhanced JSON error with detailed information
+    try {
+      const errorInfo: JsonErrorInfo = JSON.parse(errorString.substring(11));
+      showJsonErrorModal(errorInfo);
+    } catch (parseError) {
+      // Fallback to simple error display
+      if (mcpListEl) {
+        mcpListEl.innerHTML = `<p class="error">Error loading MCP servers: ${errorString}</p>`;
+      }
+    }
+  } else {
+    // Standard error handling
     if (mcpListEl) {
-      mcpListEl.innerHTML = `<p class="error">Error loading MCP servers: ${error}</p>`;
+      mcpListEl.innerHTML = `<p class="error">Error loading MCP servers: ${errorString}</p>`;
     }
   }
 }
@@ -410,9 +691,9 @@ async function showQuickInstallModal() {
     // Get preset servers from Rust backend
     const presetServers: PresetServer[] = await invoke("get_preset_servers");
     
-    // Get current servers to filter out already installed ones
-    const currentServers = getCurrentServerNames();
-    const availableServers = presetServers.filter(server => !currentServers.includes(server.name));
+    // Get current servers to check which ones are already installed
+    const currentServers = await getCurrentServerNames();
+    const availableServers = presetServers;
     
     // Get categories and server types from backend
     const categories: string[] = await invoke("get_preset_server_categories");
@@ -443,10 +724,21 @@ async function showQuickInstallModal() {
         apiKeyBadge = `<span class="api-key-badge optional">Optional API Key</span>`;
       }
       
+      // Check if server is already installed
+      const isInstalled = currentServers.includes(server.name);
+      const installButton = isInstalled ? 
+        `<button class="install-preset-btn installed" disabled>Installed</button>` :
+        `<button class="install-preset-btn" onclick="installPresetServer('${server.name}')">Install</button>`;
+      
       return `
-        <div class="preset-server-card" data-category="${server.category}" data-type="${server.serverType}">
-          <div class="server-info">
-            <h4>${server.name}</h4>
+        <div class="mcp-server" data-category="${server.category}" data-type="${server.serverType}">
+          <div class="server-header">
+            <h3>${server.name}</h3>
+            <div class="server-actions">
+              ${installButton}
+            </div>
+          </div>
+          <div class="server-details">
             <p class="server-description">${server.description}</p>
             <div class="server-meta">
               <span class="category-badge">${server.category}</span>
@@ -454,7 +746,6 @@ async function showQuickInstallModal() {
               ${apiKeyBadge}
             </div>
           </div>
-          <button class="install-preset-btn" onclick="installPresetServer('${server.name}')">Install</button>
         </div>
       `;
     }).join('');
@@ -479,7 +770,7 @@ async function showQuickInstallModal() {
               </div>
             </div>
             
-            <div class="preset-servers-grid">
+            <div class="servers-grid">
               ${serverCards}
             </div>`
           }
@@ -498,7 +789,7 @@ async function showQuickInstallModal() {
     let selectedType = 'all';
     
     function filterCards() {
-      document.querySelectorAll('.preset-server-card').forEach(card => {
+      document.querySelectorAll('.mcp-server[data-category]').forEach(card => {
         const cardElement = card as HTMLElement;
         const cardCategory = cardElement.dataset.category;
         const cardType = cardElement.dataset.type;
@@ -546,15 +837,26 @@ async function showQuickInstallModal() {
   }
 }
 
-function getCurrentServerNames(): string[] {
-  // This would normally get current servers from the state
-  // For now, we'll make an API call or use a stored list
-  // TODO: Optimize this by storing current server list in memory
-  return [];
+async function getCurrentServerNames(): Promise<string[]> {
+  try {
+    const customPath = appSettings.claudeConfigPath || null;
+    const servers: McpServerInfo[] = await invoke("parse_claude_json", { customPath });
+    return servers.map(server => server.name);
+  } catch (error) {
+    console.error("Error getting current server names:", error);
+    return [];
+  }
 }
 
 async function installPresetServer(serverName: string) {
   try {
+    // Check if server is already installed
+    const currentServers = await getCurrentServerNames();
+    if (currentServers.includes(serverName)) {
+      showNotification("Already Installed", `${serverName} is already installed.`);
+      return;
+    }
+    
     const server: PresetServer | null = await invoke("get_preset_server_by_name", { name: serverName });
     if (!server) {
       showNotification("Error", `Server "${serverName}" not found in presets`);
@@ -564,8 +866,6 @@ async function installPresetServer(serverName: string) {
     // Check if server requires API keys (either new format or legacy)
     const hasApiKeys = (server.apiKeys && server.apiKeys.length > 0) || 
                       (server.requiresApiKey && server.apiKeyName);
-    const hasRequiredApiKeys = server.apiKeys?.some(key => key.required) || 
-                              (server.requiresApiKey && server.apiKeyName);
     
     if (hasApiKeys) {
       // Show API key input modal
@@ -741,7 +1041,7 @@ function showEditModal(server: McpServerInfo) {
   
   const envEntries = Object.entries(server.env);
   const envHtml = envEntries.length > 0 ? 
-    envEntries.map(([key, value], index) => `
+    envEntries.map(([key, value]) => `
       <div class="env-var">
         <input type="text" class="env-key" value="${key}" placeholder="Variable name">
         <div class="env-value-container">
@@ -853,8 +1153,7 @@ function toggleEnvVisibility(button: HTMLElement) {
 async function handleFormSubmit(e: Event) {
   e.preventDefault();
   
-  const form = e.target as HTMLFormElement;
-  const formData = new FormData(form);
+  e.target as HTMLFormElement;
   
   const name = (document.querySelector("#server-name") as HTMLInputElement).value.trim();
   const command = (document.querySelector("#server-command") as HTMLInputElement).value.trim();

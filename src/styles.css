@@ -557,6 +557,16 @@ button {
   background-color: #45a049;
 }
 
+.install-preset-btn.installed {
+  background-color: #9e9e9e;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.install-preset-btn.installed:hover {
+  background-color: #9e9e9e;
+}
+
 .no-servers-message {
   text-align: center;
   padding: 2em;
@@ -565,6 +575,87 @@ button {
 
 .api-key-modal {
   max-width: 400px;
+}
+
+.json-error-modal {
+  max-width: 600px;
+}
+
+.error-details {
+  text-align: left;
+  margin: 1.5em 0;
+}
+
+.error-suggestion {
+  background-color: #f8f9fa;
+  border-left: 4px solid #17a2b8;
+  padding: 1em;
+  margin: 1em 0;
+  border-radius: 4px;
+}
+
+.error-actions {
+  display: flex;
+  gap: 0.5em;
+  margin: 1.5em 0;
+  flex-wrap: wrap;
+}
+
+.backup-section {
+  background-color: #e8f5e8;
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  padding: 1em;
+  margin: 1em 0;
+}
+
+.backup-section button {
+  margin-right: 0.5em;
+  margin-top: 0.5em;
+}
+
+.backup-info-modal {
+  max-width: 500px;
+}
+
+.backup-details {
+  text-align: left;
+  margin: 1.5em 0;
+}
+
+.backup-details p {
+  margin: 0.5em 0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.backup-actions {
+  text-align: center;
+  margin: 1.5em 0;
+}
+
+.backup-warning {
+  background-color: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  padding: 1em;
+  margin: 1em 0;
+  color: #856404;
+}
+
+.secondary-btn {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5em 1em;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.secondary-btn:hover {
+  background-color: #5a6268;
 }
 
 .api-key-help {
@@ -607,6 +698,22 @@ button {
 
 .settings-modal {
   max-width: 500px;
+}
+
+.config-path-section {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+}
+
+.config-path-section input {
+  flex: 1;
+}
+
+.config-path-section button {
+  flex-shrink: 0;
+  padding: 0.4em 0.8em;
+  font-size: 0.9em;
 }
 
 .help-text {
@@ -813,6 +920,15 @@ button {
   background-color: #2e7d32;
 }
 
+:root[data-theme="dark"] .install-preset-btn.installed {
+  background-color: #555;
+  color: #999;
+}
+
+:root[data-theme="dark"] .install-preset-btn.installed:hover {
+  background-color: #555;
+}
+
 :root[data-theme="dark"] .no-servers-message {
   color: #ccc;
 }
@@ -890,6 +1006,39 @@ button {
 :root[data-theme="dark"] .type-tab.active {
   background-color: #388e3c;
   border-color: #388e3c;
+}
+
+:root[data-theme="dark"] .error-suggestion {
+  background-color: #2d3748;
+  border-left-color: #4299e1;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .backup-section {
+  background-color: #1a202c;
+  border-color: #38a169;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .backup-warning {
+  background-color: #744210;
+  border-color: #d69e2e;
+  color: #fbb040;
+}
+
+:root[data-theme="dark"] .secondary-btn {
+  background-color: #4a5568;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .secondary-btn:hover {
+  background-color: #2d3748;
+}
+
+:root[data-theme="dark"] .config-path-section input {
+  background-color: #0f0f0f98;
+  color: #ffffff;
+  border: 1px solid #555;
 }
 
 /* Dark mode styles for system preference */
@@ -1009,6 +1158,15 @@ button {
     background-color: #2e7d32;
   }
 
+  :root:not([data-theme]) .install-preset-btn.installed {
+    background-color: #555;
+    color: #999;
+  }
+
+  :root:not([data-theme]) .install-preset-btn.installed:hover {
+    background-color: #555;
+  }
+
   :root:not([data-theme]) .no-servers-message {
     color: #ccc;
   }
@@ -1086,5 +1244,38 @@ button {
   :root:not([data-theme]) .type-tab.active {
     background-color: #388e3c;
     border-color: #388e3c;
+  }
+
+  :root:not([data-theme]) .error-suggestion {
+    background-color: #2d3748;
+    border-left-color: #4299e1;
+    color: #e2e8f0;
+  }
+
+  :root:not([data-theme]) .backup-section {
+    background-color: #1a202c;
+    border-color: #38a169;
+    color: #e2e8f0;
+  }
+
+  :root:not([data-theme]) .backup-warning {
+    background-color: #744210;
+    border-color: #d69e2e;
+    color: #fbb040;
+  }
+
+  :root:not([data-theme]) .secondary-btn {
+    background-color: #4a5568;
+    color: #e2e8f0;
+  }
+
+  :root:not([data-theme]) .secondary-btn:hover {
+    background-color: #2d3748;
+  }
+
+  :root:not([data-theme]) .config-path-section input {
+    background-color: #0f0f0f98;
+    color: #ffffff;
+    border: 1px solid #555;
   }
 }

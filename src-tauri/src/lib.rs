@@ -39,6 +39,24 @@ struct SaveResult {
     message: String,
 }
 
+#[derive(Debug, Serialize)]
+struct JsonErrorInfo {
+    error_type: String,
+    message: String,
+    line: Option<usize>,
+    column: Option<usize>,
+    suggestion: Option<String>,
+    has_backup: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupInfo {
+    path: String,
+    created: String,
+    size: u64,
+    is_valid: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct AppSettings {
     #[serde(rename = "claudeConfigPath")]
@@ -137,8 +155,27 @@ fn parse_claude_json(custom_path: Option<String>) -> Result<Vec<McpServerInfo>, 
     let file_content = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read Claude Desktop config at {}: {}", config_path, e))?;
     
-    let config: ClaudeConfig = serde_json::from_str(&file_content)
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    // Enhanced JSON parsing with better error messages
+    let config: ClaudeConfig = match serde_json::from_str(&file_content) {
+        Ok(config) => config,
+        Err(e) => {
+            let mut error_info = analyze_json_error(&file_content, &e);
+            
+            // Check if backup exists
+            let backup_path = format!("{}.backup", config_path);
+            error_info.has_backup = Path::new(&backup_path).exists();
+            
+            // Return detailed error information as JSON string
+            let error_json = serde_json::to_string(&error_info)
+                .unwrap_or_else(|_| format!("{{\"error_type\":\"unknown\",\"message\":\"Failed to parse JSON: {}\"}}", e));
+            return Err(format!("JSON_ERROR:{}", error_json));
+        }
+    };
+    
+    // Validate the structure after successful parsing
+    if let Err(validation_error) = validate_claude_config_structure(&config) {
+        return Err(format!("Configuration validation failed: {}", validation_error));
+    }
     
     let mut servers = Vec::new();
     
@@ -309,6 +346,158 @@ fn validate_server_config(server: PresetServer) -> bool {
 }
 
 #[tauri::command]
+fn get_backup_info(custom_path: Option<String>) -> Result<Option<BackupInfo>, String> {
+    let config_path = resolve_config_path(custom_path)?;
+    let backup_path = format!("{}.backup", config_path);
+    
+    if !Path::new(&backup_path).exists() {
+        return Ok(None);
+    }
+    
+    let metadata = fs::metadata(&backup_path)
+        .map_err(|e| format!("Failed to get backup metadata: {}", e))?;
+    
+    let size = metadata.len();
+    let created = metadata.modified()
+        .map(|time| {
+            let duration = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+            let datetime = std::time::SystemTime::UNIX_EPOCH + duration;
+            format!("{:?}", datetime) // Simple formatting for now
+        })
+        .unwrap_or_else(|_| "Unknown".to_string());
+    
+    // Validate backup by trying to parse it
+    let is_valid = match fs::read_to_string(&backup_path) {
+        Ok(content) => serde_json::from_str::<ClaudeConfig>(&content).is_ok(),
+        Err(_) => false,
+    };
+    
+    Ok(Some(BackupInfo {
+        path: backup_path,
+        created,
+        size,
+        is_valid,
+    }))
+}
+
+#[tauri::command]
+fn restore_from_backup(custom_path: Option<String>) -> Result<SaveResult, String> {
+    let config_path = resolve_config_path(custom_path)?;
+    let backup_path = format!("{}.backup", config_path);
+    
+    if !Path::new(&backup_path).exists() {
+        return Ok(SaveResult {
+            success: false,
+            message: "No backup file found".to_string(),
+        });
+    }
+    
+    // Validate backup before restoring
+    let backup_content = fs::read_to_string(&backup_path)
+        .map_err(|e| format!("Failed to read backup file: {}", e))?;
+    
+    let _config: ClaudeConfig = serde_json::from_str(&backup_content)
+        .map_err(|_| "Backup file is corrupted or invalid")?;
+    
+    // Create a backup of the current (potentially broken) file
+    let broken_backup_path = format!("{}.broken", config_path);
+    if Path::new(&config_path).exists() {
+        fs::copy(&config_path, &broken_backup_path)
+            .map_err(|e| format!("Failed to backup current file: {}", e))?;
+    }
+    
+    // Restore from backup
+    fs::copy(&backup_path, &config_path)
+        .map_err(|e| format!("Failed to restore from backup: {}", e))?;
+    
+    Ok(SaveResult {
+        success: true,
+        message: "Configuration restored from backup successfully".to_string(),
+    })
+}
+
+#[tauri::command]
+fn open_file_location(path: String) -> Result<(), String> {
+    use std::process::Command;
+    
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file location: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file location: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Try different file managers for Linux
+        let file_managers = ["nautilus", "dolphin", "thunar", "pcmanfm", "nemo"];
+        let mut success = false;
+        
+        for manager in &file_managers {
+            if let Ok(_) = Command::new(manager)
+                .arg(&path)
+                .spawn()
+            {
+                success = true;
+                break;
+            }
+        }
+        
+        if !success {
+            // Fallback to opening the parent directory with xdg-open
+            let parent_path = std::path::Path::new(&path)
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("/"))
+                .to_string_lossy();
+            
+            Command::new("xdg-open")
+                .arg(parent_path.as_ref())
+                .spawn()
+                .map_err(|e| format!("Failed to open file location: {}", e))?;
+        }
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+fn create_manual_backup(custom_path: Option<String>) -> Result<SaveResult, String> {
+    let config_path = resolve_config_path(custom_path)?;
+    
+    if !Path::new(&config_path).exists() {
+        return Ok(SaveResult {
+            success: false,
+            message: "Configuration file does not exist".to_string(),
+        });
+    }
+    
+    // Create timestamped backup
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    
+    let manual_backup_path = format!("{}.manual_backup_{}", config_path, timestamp);
+    
+    fs::copy(&config_path, &manual_backup_path)
+        .map_err(|e| format!("Failed to create manual backup: {}", e))?;
+    
+    Ok(SaveResult {
+        success: true,
+        message: format!("Manual backup created: {}", manual_backup_path),
+    })
+}
+
+#[tauri::command]
 fn get_settings_path() -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
@@ -471,6 +660,68 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
     ]
 }
 
+fn analyze_json_error(_json_content: &str, error: &serde_json::Error) -> JsonErrorInfo {
+    let error_msg = error.to_string();
+    let line = error.line();
+    let column = error.column();
+    
+    let (error_type, user_message, suggestion) = if error_msg.contains("EOF while parsing") {
+        ("incomplete", 
+         "The JSON file appears to be incomplete or truncated", 
+         Some("Check if the file ends properly with closing braces }".to_string()))
+    } else if error_msg.contains("expected") && error_msg.contains("found") {
+        ("syntax", 
+         "Invalid JSON syntax found", 
+         Some("Check for missing commas, quotes, or brackets around the error location".to_string()))
+    } else if error_msg.contains("trailing comma") {
+        ("trailing_comma", 
+         "Found an extra comma at the end of a list or object", 
+         Some("Remove the trailing comma before the closing bracket".to_string()))
+    } else if error_msg.contains("duplicate key") {
+        ("duplicate_key", 
+         "Found duplicate server names in the configuration", 
+         Some("Each server must have a unique name".to_string()))
+    } else {
+        ("unknown", 
+         "JSON parsing error occurred", 
+         Some("Please check your JSON syntax or restore from backup".to_string()))
+    };
+    
+    JsonErrorInfo {
+        error_type: error_type.to_string(),
+        message: user_message.to_string(),
+        line: Some(line),
+        column: Some(column),
+        suggestion,
+        has_backup: false, // Will be updated by caller
+    }
+}
+
+fn validate_claude_config_structure(config: &ClaudeConfig) -> Result<(), String> {
+    // Check if mcpServers exists and is valid
+    if config.mcp_servers.is_empty() {
+        return Ok(()); // Empty config is valid
+    }
+    
+    // Validate each server configuration
+    for (name, server) in &config.mcp_servers {
+        if name.trim().is_empty() {
+            return Err("Server name cannot be empty".to_string());
+        }
+        
+        if server.command.trim().is_empty() {
+            return Err(format!("Server '{}' has an empty command", name));
+        }
+        
+        // Check for common command issues
+        if server.command.contains(" ") && !server.command.starts_with("\"") {
+            return Err(format!("Server '{}' command contains spaces but is not quoted. Consider moving arguments to the 'args' array", name));
+        }
+    }
+    
+    Ok(())
+}
+
 fn save_server_config(name: String, server_data: Option<McpServerEdit>, is_new: bool, custom_path: Option<String>) -> Result<SaveResult, String> {
     let config_path = resolve_config_path(custom_path)?;
     
@@ -580,7 +831,7 @@ fn resolve_config_path(custom_path: Option<String>) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, parse_claude_json, get_server_details, update_server, add_server, delete_server, get_default_config_path, load_app_settings, save_app_settings, get_settings_path, get_preset_servers, get_preset_servers_by_category, get_preset_server_categories, get_preset_server_by_name, get_preset_servers_by_type, get_server_types, validate_server_config])
+        .invoke_handler(tauri::generate_handler![greet, parse_claude_json, get_server_details, update_server, add_server, delete_server, get_default_config_path, load_app_settings, save_app_settings, get_settings_path, get_preset_servers, get_preset_servers_by_category, get_preset_server_categories, get_preset_server_by_name, get_preset_servers_by_type, get_server_types, validate_server_config, get_backup_info, restore_from_backup, create_manual_backup, open_file_location])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
