@@ -4,7 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### tool usage
 before writing code try to look at your tools.
-with these you can get documentation for the rust library you want to use
+with these you can get documentation for the rust library you want to use.
+for rmcp its rust-sdk
                                                                                   
 ## Project Overview
 

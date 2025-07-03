@@ -7,11 +7,12 @@ use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager as _;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 pub mod mcp_server;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct McpServer {
+pub struct McpServer {
     command: String,
     args: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,6 +70,12 @@ pub struct AppSettings {
     pub claude_config_path: String,
     #[serde(rename = "darkMode")]
     pub dark_mode: bool,
+    #[serde(rename = "mcpServerEnabled")]
+    pub mcp_server_enabled: bool,
+    #[serde(rename = "mcpServerPort")]
+    pub mcp_server_port: u16,
+    #[serde(rename = "mcpSsePath")]
+    pub mcp_sse_path: String,
 }
 
 impl Default for AppSettings {
@@ -76,6 +83,9 @@ impl Default for AppSettings {
         Self {
             claude_config_path: String::new(),
             dark_mode: false,
+            mcp_server_enabled: false,
+            mcp_server_port: 8000,
+            mcp_sse_path: "/sse".to_string(),
         }
     }
 }
@@ -113,7 +123,7 @@ impl ServerType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct ApiKeyRequirement {
+pub struct ApiKeyRequirement {
     name: String,
     description: String,
     required: bool,
@@ -218,25 +228,34 @@ fn get_default_config_path() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn load_app_settings() -> Result<AppSettings, String> {
+async fn load_app_settings(state: tauri::State<'_, AppState>) -> Result<AppSettings, String> {
     let settings_path = get_settings_path()?;
 
-    if !Path::new(&settings_path).exists() {
+    let settings = if !Path::new(&settings_path).exists() {
         // Return default settings if file doesn't exist
-        return Ok(AppSettings::default());
+        AppSettings::default()
+    } else {
+        let file_content = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("Failed to read settings file: {}", e))?;
+
+        serde_json::from_str(&file_content)
+            .map_err(|e| format!("Failed to parse settings: {}", e))?
+    };
+
+    // Update the settings cache
+    {
+        let mut settings_cache = state.settings_cache.write().await;
+        *settings_cache = settings.clone();
     }
-
-    let file_content = fs::read_to_string(&settings_path)
-        .map_err(|e| format!("Failed to read settings file: {}", e))?;
-
-    let settings: AppSettings = serde_json::from_str(&file_content)
-        .map_err(|e| format!("Failed to parse settings: {}", e))?;
 
     Ok(settings)
 }
 
 #[tauri::command]
-fn save_app_settings(settings: AppSettings) -> Result<SaveResult, String> {
+async fn save_app_settings(
+    state: tauri::State<'_, AppState>,
+    settings: AppSettings,
+) -> Result<SaveResult, String> {
     let settings_path = get_settings_path()?;
     let settings_dir = Path::new(&settings_path)
         .parent()
@@ -253,6 +272,12 @@ fn save_app_settings(settings: AppSettings) -> Result<SaveResult, String> {
 
     fs::write(&settings_path, settings_json)
         .map_err(|e| format!("Failed to write settings file: {}", e))?;
+
+    // Update the settings cache
+    {
+        let mut settings_cache = state.settings_cache.write().await;
+        *settings_cache = settings;
+    }
 
     Ok(SaveResult {
         success: true,
@@ -325,6 +350,146 @@ fn get_server_types() -> Vec<String> {
 #[tauri::command]
 fn validate_server_config(server: PresetServer) -> bool {
     server.validate_command_matches_type()
+}
+
+// Internal function for starting MCP server (used by both Tauri command and auto-start)
+async fn internal_start_mcp_server(state: &AppState) -> Result<SaveResult, String> {
+    let settings = {
+        let settings_guard = state.settings_cache.read().await;
+        settings_guard.clone()
+    };
+
+    if !settings.mcp_server_enabled {
+        return Ok(SaveResult {
+            success: false,
+            message: "MCP server is disabled in settings".to_string(),
+        });
+    }
+
+    // Check if server is already running
+    {
+        let status_guard = state.mcp_server_status.read().await;
+        if status_guard.running {
+            return Ok(SaveResult {
+                success: false,
+                message: "MCP server is already running".to_string(),
+            });
+        }
+    }
+
+    // Validate port availability (basic check)
+    if let Err(_) = std::net::TcpListener::bind(format!("127.0.0.1:{}", settings.mcp_server_port)) {
+        return Ok(SaveResult {
+            success: false,
+            message: format!("Port {} is already in use", settings.mcp_server_port),
+        });
+    }
+
+    // Create cancellation token
+    let cancellation_token = CancellationToken::new();
+    
+    // Store cancellation token
+    {
+        let mut token_guard = state.mcp_server_cancellation.write().await;
+        *token_guard = Some(cancellation_token.clone());
+    }
+
+    // Update server status
+    {
+        let mut status_guard = state.mcp_server_status.write().await;
+        status_guard.running = true;
+        status_guard.port = Some(settings.mcp_server_port);
+        status_guard.sse_path = Some(settings.mcp_sse_path.clone());
+        status_guard.url = Some(format!("http://127.0.0.1:{}{}", settings.mcp_server_port, settings.mcp_sse_path));
+    }
+
+    // Start MCP server in background
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = mcp_server::start_mcp_server(state_clone.clone()).await {
+            eprintln!("MCP server error: {}", e);
+            // Reset status on error
+            let mut status_guard = state_clone.mcp_server_status.write().await;
+            status_guard.running = false;
+            status_guard.port = None;
+            status_guard.sse_path = None;
+            status_guard.url = None;
+        }
+    });
+
+    Ok(SaveResult {
+        success: true,
+        message: format!("MCP server started on port {}", settings.mcp_server_port),
+    })
+}
+
+#[tauri::command]
+async fn start_mcp_server(state: tauri::State<'_, AppState>) -> Result<SaveResult, String> {
+    let settings = {
+        let settings_guard = state.settings_cache.read().await;
+        settings_guard.clone()
+    };
+
+    println!("Debug: MCP server enabled: {}", settings.mcp_server_enabled);
+    println!("Debug: MCP server port: {}", settings.mcp_server_port);
+    println!("Debug: MCP SSE path: {}", settings.mcp_sse_path);
+
+    internal_start_mcp_server(state.inner()).await
+}
+
+#[tauri::command]
+async fn stop_mcp_server(state: tauri::State<'_, AppState>) -> Result<SaveResult, String> {
+    // Get and cancel the token
+    let token = {
+        let mut token_guard = state.mcp_server_cancellation.write().await;
+        token_guard.take()
+    };
+
+    if let Some(token) = token {
+        token.cancel();
+    }
+
+    // Update server status
+    {
+        let mut status_guard = state.mcp_server_status.write().await;
+        status_guard.running = false;
+        status_guard.port = None;
+        status_guard.sse_path = None;
+        status_guard.url = None;
+    }
+
+    Ok(SaveResult {
+        success: true,
+        message: "MCP server stopped".to_string(),
+    })
+}
+
+#[tauri::command]
+async fn get_mcp_server_status(state: tauri::State<'_, AppState>) -> Result<McpServerStatus, String> {
+    let status_guard = state.mcp_server_status.read().await;
+    Ok(status_guard.clone())
+}
+
+#[tauri::command]
+fn validate_mcp_port(port: u16) -> Result<SaveResult, String> {
+    if port < 1024 {
+        return Ok(SaveResult {
+            success: false,
+            message: "Port must be between 1024 and 65535".to_string(),
+        });
+    }
+
+    // Try to bind to the port to check availability
+    match std::net::TcpListener::bind(format!("127.0.0.1:{}", port)) {
+        Ok(_) => Ok(SaveResult {
+            success: true,
+            message: format!("Port {} is available", port),
+        }),
+        Err(_) => Ok(SaveResult {
+            success: false,
+            message: format!("Port {} is already in use", port),
+        }),
+    }
 }
 
 #[tauri::command]
@@ -511,12 +676,23 @@ fn get_settings_path() -> Result<String, String> {
     }
 }
 
+// MCP Server Status
+#[derive(Debug, Serialize, Clone)]
+pub struct McpServerStatus {
+    pub running: bool,
+    pub port: Option<u16>,
+    pub sse_path: Option<String>,
+    pub url: Option<String>,
+}
+
 // Shared state for real-time sync between GUI and MCP server
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AppState {
     pub config_cache: Arc<RwLock<Option<ClaudeConfig>>>,
     pub settings_cache: Arc<RwLock<AppSettings>>,
     pub config_path: Arc<RwLock<String>>,
+    pub mcp_server_status: Arc<RwLock<McpServerStatus>>,
+    pub mcp_server_cancellation: Arc<RwLock<Option<CancellationToken>>>,
 }
 
 impl AppState {
@@ -525,6 +701,13 @@ impl AppState {
             config_cache: Arc::new(RwLock::new(None)),
             settings_cache: Arc::new(RwLock::new(AppSettings::default())),
             config_path: Arc::new(RwLock::new(String::new())),
+            mcp_server_status: Arc::new(RwLock::new(McpServerStatus {
+                running: false,
+                port: None,
+                sse_path: None,
+                url: None,
+            })),
+            mcp_server_cancellation: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -868,6 +1051,24 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
             api_key_name: None,
             api_key_description: None,
         },
+        PresetServer {
+            name: "mcp-manager".to_string(),
+            description: "control mcp manager using ai".to_string(),
+            category: "Development".to_string(),
+            server_type: ServerType::Npx,
+            command: "npx".to_string(),
+            args: vec![
+                "-y".to_string(),
+                "supergateway".to_string(),
+                "--sse".to_string(),
+                "http://localhost:8000/sse".to_string(),
+            ],
+            env: None,
+            api_keys: vec![],
+            requires_api_key: false,
+            api_key_name: None,
+            api_key_description: None,
+        },
     ]
 }
 
@@ -1101,19 +1302,75 @@ pub fn run() {
             get_backup_info,
             restore_from_backup,
             create_manual_backup,
-            open_file_location
+            open_file_location,
+            start_mcp_server,
+            stop_mcp_server,
+            get_mcp_server_status,
+            validate_mcp_port
         ])
         .setup(|_app| {
             println!("🚀 MCP Manager started with integrated MCP server support");
             println!("📱 Desktop GUI: Available");
             println!("🔗 MCP Server: Ready for Claude Desktop integration");
-
-            // Optionally start MCP server in background - uncomment if needed
+            println!("⚙️ Auto-start: Will check settings and start if enabled");
+            // Load settings into cache on startup
             let app_state = _app.state::<AppState>();
-            let mcp_state = app_state.inner().clone();
+            let state_clone = app_state.inner().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = mcp_server::start_mcp_server(mcp_state).await {
-                    eprintln!("MCP server error: {}", e);
+                // Load settings on startup to populate cache
+                let settings_path = match get_settings_path() {
+                    Ok(path) => path,
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to get settings path: {}", e);
+                        return;
+                    }
+                };
+
+                let settings = if !Path::new(&settings_path).exists() {
+                    AppSettings::default()
+                } else {
+                    match fs::read_to_string(&settings_path) {
+                        Ok(content) => {
+                            match serde_json::from_str(&content) {
+                                Ok(settings) => settings,
+                                Err(e) => {
+                                    eprintln!("⚠️ Failed to parse settings: {}", e);
+                                    AppSettings::default()
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to read settings file: {}", e);
+                            AppSettings::default()
+                        }
+                    }
+                };
+
+                // Update the settings cache
+                {
+                    let mut settings_cache = state_clone.settings_cache.write().await;
+                    *settings_cache = settings.clone();
+                }
+
+                println!("✅ Settings loaded on startup: MCP server enabled = {}", settings.mcp_server_enabled);
+
+                // Auto-start MCP server if enabled in settings
+                if settings.mcp_server_enabled {
+                    println!("🚀 Auto-starting MCP server...");
+                    match internal_start_mcp_server(&state_clone).await {
+                        Ok(result) => {
+                            if result.success {
+                                println!("✅ MCP server auto-started successfully: {}", result.message);
+                            } else {
+                                println!("⚠️ MCP server auto-start failed: {}", result.message);
+                            }
+                        }
+                        Err(e) => {
+                            println!("❌ MCP server auto-start error: {}", e);
+                        }
+                    }
+                } else {
+                    println!("ℹ️ MCP server auto-start skipped (disabled in settings)");
                 }
             });
 

@@ -19,6 +19,20 @@
         </button>
       </div>
       <div class="section">
+        <div id="mcp-server-status" class="mcp-status-section" style="display: none;">
+          <h3>MCP Server Status</h3>
+          <div class="status-info">
+            <span id="status-indicator" class="status-offline">● Offline</span>
+            <span id="status-url"></span>
+          </div>
+          <div class="status-controls">
+            <button id="start-server-btn" class="primary-btn">Start Server</button>
+            <button id="stop-server-btn" class="secondary-btn" style="display: none;">Stop Server</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="section">
         <div id="mcp-list"></div>
       </div>
 

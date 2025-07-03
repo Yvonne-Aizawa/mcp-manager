@@ -56,6 +56,13 @@ interface PresetServer {
   apiKeyDescription?: string;
 }
 
+interface McpServerStatus {
+  running: boolean;
+  port?: number;
+  ssePath?: string;
+  url?: string;
+}
+
 let mcpListEl: HTMLElement | null;
 let modalEl: HTMLElement | null;
 let currentEditingServer: string | null = null;
@@ -64,11 +71,17 @@ let currentEditingServer: string | null = null;
 interface AppSettings {
   claudeConfigPath: string;
   darkMode: boolean;
+  mcpServerEnabled: boolean;
+  mcpServerPort: number;
+  mcpSsePath: string;
 }
 
 let appSettings: AppSettings = {
   claudeConfigPath: '',
-  darkMode: false
+  darkMode: false,
+  mcpServerEnabled: false,
+  mcpServerPort: 8000,
+  mcpSsePath: '/sse'
 };
 
 
@@ -357,6 +370,8 @@ async function loadSettings() {
     const savedSettings: AppSettings = await invoke("load_app_settings");
     appSettings = { ...appSettings, ...savedSettings };
     
+    console.log('Debug: Frontend loaded settings:', appSettings);
+    
     // Apply dark mode setting
     applyDarkMode(appSettings.darkMode);
   } catch (error) {
@@ -364,7 +379,10 @@ async function loadSettings() {
     // Fall back to default settings
     appSettings = {
       claudeConfigPath: '',
-      darkMode: false
+      darkMode: false,
+      mcpServerEnabled: false,
+      mcpServerPort: 8000,
+      mcpSsePath: '/sse'
     };
   }
 }
@@ -405,7 +423,10 @@ async function migrateFromLocalStorage() {
     const localSettings = JSON.parse(localStorageSettings);
     const migratedSettings: AppSettings = {
       claudeConfigPath: localSettings.claudeConfigPath || '',
-      darkMode: localSettings.darkMode || false
+      darkMode: localSettings.darkMode || false,
+      mcpServerEnabled: localSettings.mcpServerEnabled || false,
+      mcpServerPort: localSettings.mcpServerPort || 8000,
+      mcpSsePath: localSettings.mcpSsePath || '/sse'
     };
     
     // Save to file
@@ -467,6 +488,29 @@ async function showSettingsModal() {
             </label>
           </div>
           
+          <div class="form-group">
+            <h3>MCP Server Configuration</h3>
+            <label class="checkbox-label">
+              <input type="checkbox" id="mcp-server-enabled" ${appSettings.mcpServerEnabled ? 'checked' : ''}>
+              <span class="checkbox-custom"></span>
+              Enable MCP Server
+            </label>
+          </div>
+          
+          <div class="form-group">
+            <label for="mcp-server-port">MCP Server Port:</label>
+            <input type="number" id="mcp-server-port" value="${appSettings.mcpServerPort}" 
+                   min="1024" max="65535" ${!appSettings.mcpServerEnabled ? 'disabled' : ''}>
+            <small class="help-text">Port for the MCP server (1024-65535)</small>
+          </div>
+          
+          <div class="form-group">
+            <label for="mcp-sse-path">SSE Endpoint Path:</label>
+            <input type="text" id="mcp-sse-path" value="${appSettings.mcpSsePath}" 
+                   placeholder="/sse" ${!appSettings.mcpServerEnabled ? 'disabled' : ''}>
+            <small class="help-text">Path for the Server-Sent Events endpoint</small>
+          </div>
+          
           <div class="modal-actions">
             <button type="button" onclick="closeModal()">Cancel</button>
             <button type="submit" class="primary-btn">Save Settings</button>
@@ -485,6 +529,21 @@ async function showSettingsModal() {
   document.querySelector("#dark-mode-toggle")?.addEventListener("change", (e) => {
     const target = e.target as HTMLInputElement;
     applyDarkMode(target.checked);
+  });
+  
+  // Handle MCP server enable/disable
+  document.querySelector("#mcp-server-enabled")?.addEventListener("change", (e) => {
+    const target = e.target as HTMLInputElement;
+    const portInput = document.querySelector("#mcp-server-port") as HTMLInputElement;
+    const pathInput = document.querySelector("#mcp-sse-path") as HTMLInputElement;
+    
+    if (target.checked) {
+      portInput.disabled = false;
+      pathInput.disabled = false;
+    } else {
+      portInput.disabled = true;
+      pathInput.disabled = true;
+    }
   });
   
   // Handle open config button
@@ -544,13 +603,41 @@ async function handleSettingsSubmit(e: Event) {
   
   const claudeConfigPath = (document.querySelector("#claude-config-path") as HTMLInputElement).value.trim();
   const darkMode = (document.querySelector("#dark-mode-toggle") as HTMLInputElement).checked;
+  const mcpServerEnabled = (document.querySelector("#mcp-server-enabled") as HTMLInputElement).checked;
+  const mcpServerPort = parseInt((document.querySelector("#mcp-server-port") as HTMLInputElement).value);
+  const mcpSsePath = (document.querySelector("#mcp-sse-path") as HTMLInputElement).value.trim();
+  
+  // Validate MCP server settings
+  if (mcpServerEnabled) {
+    if (isNaN(mcpServerPort) || mcpServerPort < 1024 || mcpServerPort > 65535) {
+      showNotification("Validation Error", "Port must be between 1024 and 65535");
+      return;
+    }
+    
+    if (!mcpSsePath) {
+      showNotification("Validation Error", "SSE path cannot be empty");
+      return;
+    }
+    
+    if (!mcpSsePath.startsWith("/")) {
+      showNotification("Validation Error", "SSE path must start with /");
+      return;
+    }
+  }
   
   appSettings.claudeConfigPath = claudeConfigPath;
   appSettings.darkMode = darkMode;
+  appSettings.mcpServerEnabled = mcpServerEnabled;
+  appSettings.mcpServerPort = mcpServerPort;
+  appSettings.mcpSsePath = mcpSsePath;
   
   try {
     await saveSettings();
     applyDarkMode(darkMode);
+    
+    // Update MCP server status based on new settings
+    await updateMcpServerStatus();
+    
     showNotification("Success", "Settings saved successfully!");
     closeModal();
   } catch (error) {
@@ -1312,6 +1399,71 @@ async function handleImportSubmit(e: Event) {
 (window as any).handleModalCancel = handleModalCancel;
 (window as any).closeNotificationModal = closeNotificationModal;
 
+// MCP Server Management Functions
+async function updateMcpServerStatus() {
+  try {
+    const status: McpServerStatus = await invoke("get_mcp_server_status");
+    const statusSection = document.querySelector("#mcp-server-status");
+    const statusIndicator = document.querySelector("#status-indicator");
+    const statusUrl = document.querySelector("#status-url");
+    const startBtn = document.querySelector("#start-server-btn") as HTMLButtonElement;
+    const stopBtn = document.querySelector("#stop-server-btn") as HTMLButtonElement;
+    
+    if (appSettings.mcpServerEnabled) {
+      statusSection?.setAttribute("style", "display: block;");
+      
+      if (status.running) {
+        statusIndicator!.textContent = "● Online";
+        statusIndicator!.className = "status-online";
+        statusUrl!.textContent = status.url || "";
+        startBtn.style.display = "none";
+        stopBtn.style.display = "inline-block";
+      } else {
+        statusIndicator!.textContent = "● Offline";
+        statusIndicator!.className = "status-offline";
+        statusUrl!.textContent = "";
+        startBtn.style.display = "inline-block";
+        stopBtn.style.display = "none";
+      }
+    } else {
+      statusSection?.setAttribute("style", "display: none;");
+    }
+  } catch (error) {
+    console.error("Failed to get MCP server status:", error);
+  }
+}
+
+async function startMcpServer() {
+  try {
+    console.log('Debug: Starting MCP server with settings:', appSettings);
+    const result: SaveResult = await invoke("start_mcp_server");
+    console.log('Debug: Start MCP server result:', result);
+    if (result.success) {
+      showNotification("Success", result.message);
+      await updateMcpServerStatus();
+    } else {
+      showNotification("Error", result.message);
+    }
+  } catch (error) {
+    console.log('Debug: Start MCP server error:', error);
+    showNotification("Error", `Failed to start MCP server: ${error}`);
+  }
+}
+
+async function stopMcpServer() {
+  try {
+    const result: SaveResult = await invoke("stop_mcp_server");
+    if (result.success) {
+      showNotification("Success", result.message);
+      await updateMcpServerStatus();
+    } else {
+      showNotification("Error", result.message);
+    }
+  } catch (error) {
+    showNotification("Error", `Failed to stop MCP server: ${error}`);
+  }
+}
+
 // Set up real-time event listeners for MCP server integration
 function setupRealtimeEventListeners() {
   // Listen for configuration changes from MCP server operations
@@ -1363,6 +1515,16 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Attach settings button event listener
   document.querySelector("#settings-btn")?.addEventListener("click", showSettingsModal);
   
+  // Attach MCP server control event listeners
+  document.querySelector("#start-server-btn")?.addEventListener("click", startMcpServer);
+  document.querySelector("#stop-server-btn")?.addEventListener("click", stopMcpServer);
+  
   // Load MCP servers on startup
   loadMcpServers();
+  
+  // Update MCP server status
+  await updateMcpServerStatus();
+  
+  // Periodically check MCP server status
+  setInterval(updateMcpServerStatus, 5000);
 });
