@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
-use tauri::Manager as _;
 use std::collections::HashMap;
-use std::fs;
 use std::env;
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tauri::Emitter;
+use tauri::Manager as _;
+use tokio::sync::RwLock;
 
 pub mod mcp_server;
 
@@ -100,7 +100,7 @@ impl ServerType {
             _ => ServerType::Other(command.to_string()),
         }
     }
-    
+
     fn to_string(&self) -> String {
         match self {
             ServerType::Docker => "docker".to_string(),
@@ -155,7 +155,10 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-async fn parse_claude_json(state: tauri::State<'_, AppState>, custom_path: Option<String>) -> Result<Vec<McpServerInfo>, String> {
+async fn parse_claude_json(
+    state: tauri::State<'_, AppState>,
+    custom_path: Option<String>,
+) -> Result<Vec<McpServerInfo>, String> {
     internal_parse_claude_json(&state, custom_path).await
 }
 
@@ -164,13 +167,15 @@ fn get_server_details(name: String, custom_path: Option<String>) -> Result<McpSe
     let config_path = resolve_config_path(custom_path)?;
     let file_content = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read Claude Desktop config: {}", e))?;
-    
-    let config: ClaudeConfig = serde_json::from_str(&file_content)
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
-    
-    let server = config.mcp_servers.get(&name)
+
+    let config: ClaudeConfig =
+        serde_json::from_str(&file_content).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    let server = config
+        .mcp_servers
+        .get(&name)
         .ok_or_else(|| format!("Server '{}' not found", name))?;
-    
+
     Ok(McpServerInfo {
         name,
         command: server.command.clone(),
@@ -180,17 +185,30 @@ fn get_server_details(name: String, custom_path: Option<String>) -> Result<McpSe
 }
 
 #[tauri::command]
-fn update_server(name: String, server_data: McpServerEdit, custom_path: Option<String>) -> Result<SaveResult, String> {
+fn update_server(
+    name: String,
+    server_data: McpServerEdit,
+    custom_path: Option<String>,
+) -> Result<SaveResult, String> {
     save_server_config(name.clone(), Some(server_data), false, custom_path)
 }
 
 #[tauri::command]
-async fn add_server(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, name: String, server_data: McpServerEdit) -> Result<SaveResult, String> {
+async fn add_server(
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    name: String,
+    server_data: McpServerEdit,
+) -> Result<SaveResult, String> {
     internal_add_server(&state, name, server_data, Some(&app_handle)).await
 }
 
 #[tauri::command]
-async fn delete_server(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, name: String) -> Result<SaveResult, String> {
+async fn delete_server(
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    name: String,
+) -> Result<SaveResult, String> {
     internal_delete_server(&state, name, Some(&app_handle)).await
 }
 
@@ -202,39 +220,40 @@ fn get_default_config_path() -> Result<String, String> {
 #[tauri::command]
 fn load_app_settings() -> Result<AppSettings, String> {
     let settings_path = get_settings_path()?;
-    
+
     if !Path::new(&settings_path).exists() {
         // Return default settings if file doesn't exist
         return Ok(AppSettings::default());
     }
-    
+
     let file_content = fs::read_to_string(&settings_path)
         .map_err(|e| format!("Failed to read settings file: {}", e))?;
-    
+
     let settings: AppSettings = serde_json::from_str(&file_content)
         .map_err(|e| format!("Failed to parse settings: {}", e))?;
-    
+
     Ok(settings)
 }
 
 #[tauri::command]
 fn save_app_settings(settings: AppSettings) -> Result<SaveResult, String> {
     let settings_path = get_settings_path()?;
-    let settings_dir = Path::new(&settings_path).parent()
+    let settings_dir = Path::new(&settings_path)
+        .parent()
         .ok_or("Could not determine settings directory")?;
-    
+
     // Create settings directory if it doesn't exist
     if !settings_dir.exists() {
         fs::create_dir_all(settings_dir)
             .map_err(|e| format!("Failed to create settings directory: {}", e))?;
     }
-    
+
     let settings_json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    
+
     fs::write(&settings_path, settings_json)
         .map_err(|e| format!("Failed to write settings file: {}", e))?;
-    
+
     Ok(SaveResult {
         success: true,
         message: "Settings saved successfully".to_string(),
@@ -260,7 +279,7 @@ fn get_preset_server_categories() -> Vec<String> {
         .into_iter()
         .map(|server| server.category)
         .collect();
-    
+
     // Remove duplicates and sort
     categories.sort();
     categories.dedup();
@@ -283,7 +302,7 @@ fn get_preset_servers_by_type(server_type: String) -> Vec<PresetServer> {
         "uv" => ServerType::Uv,
         _ => ServerType::Other(server_type),
     };
-    
+
     get_preset_servers_database()
         .into_iter()
         .filter(|server| server.server_type == target_type)
@@ -296,7 +315,7 @@ fn get_server_types() -> Vec<String> {
         .into_iter()
         .map(|server| server.server_type.to_string())
         .collect();
-    
+
     // Remove duplicates and sort
     types.sort();
     types.dedup();
@@ -312,29 +331,32 @@ fn validate_server_config(server: PresetServer) -> bool {
 fn get_backup_info(custom_path: Option<String>) -> Result<Option<BackupInfo>, String> {
     let config_path = resolve_config_path(custom_path)?;
     let backup_path = format!("{}.backup", config_path);
-    
+
     if !Path::new(&backup_path).exists() {
         return Ok(None);
     }
-    
-    let metadata = fs::metadata(&backup_path)
-        .map_err(|e| format!("Failed to get backup metadata: {}", e))?;
-    
+
+    let metadata =
+        fs::metadata(&backup_path).map_err(|e| format!("Failed to get backup metadata: {}", e))?;
+
     let size = metadata.len();
-    let created = metadata.modified()
+    let created = metadata
+        .modified()
         .map(|time| {
-            let duration = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+            let duration = time
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
             let datetime = std::time::SystemTime::UNIX_EPOCH + duration;
             format!("{:?}", datetime) // Simple formatting for now
         })
         .unwrap_or_else(|_| "Unknown".to_string());
-    
+
     // Validate backup by trying to parse it
     let is_valid = match fs::read_to_string(&backup_path) {
         Ok(content) => serde_json::from_str::<ClaudeConfig>(&content).is_ok(),
         Err(_) => false,
     };
-    
+
     Ok(Some(BackupInfo {
         path: backup_path,
         created,
@@ -347,32 +369,32 @@ fn get_backup_info(custom_path: Option<String>) -> Result<Option<BackupInfo>, St
 fn restore_from_backup(custom_path: Option<String>) -> Result<SaveResult, String> {
     let config_path = resolve_config_path(custom_path)?;
     let backup_path = format!("{}.backup", config_path);
-    
+
     if !Path::new(&backup_path).exists() {
         return Ok(SaveResult {
             success: false,
             message: "No backup file found".to_string(),
         });
     }
-    
+
     // Validate backup before restoring
     let backup_content = fs::read_to_string(&backup_path)
         .map_err(|e| format!("Failed to read backup file: {}", e))?;
-    
-    let _config: ClaudeConfig = serde_json::from_str(&backup_content)
-        .map_err(|_| "Backup file is corrupted or invalid")?;
-    
+
+    let _config: ClaudeConfig =
+        serde_json::from_str(&backup_content).map_err(|_| "Backup file is corrupted or invalid")?;
+
     // Create a backup of the current (potentially broken) file
     let broken_backup_path = format!("{}.broken", config_path);
     if Path::new(&config_path).exists() {
         fs::copy(&config_path, &broken_backup_path)
             .map_err(|e| format!("Failed to backup current file: {}", e))?;
     }
-    
+
     // Restore from backup
     fs::copy(&backup_path, &config_path)
         .map_err(|e| format!("Failed to restore from backup: {}", e))?;
-    
+
     Ok(SaveResult {
         success: true,
         message: "Configuration restored from backup successfully".to_string(),
@@ -382,7 +404,7 @@ fn restore_from_backup(custom_path: Option<String>) -> Result<SaveResult, String
 #[tauri::command]
 fn open_file_location(path: String) -> Result<(), String> {
     use std::process::Command;
-    
+
     #[cfg(target_os = "windows")]
     {
         Command::new("explorer")
@@ -390,7 +412,7 @@ fn open_file_location(path: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| format!("Failed to open file location: {}", e))?;
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         Command::new("open")
@@ -398,62 +420,59 @@ fn open_file_location(path: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| format!("Failed to open file location: {}", e))?;
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         // Try different file managers for Linux
         let file_managers = ["nautilus", "dolphin", "thunar", "pcmanfm", "nemo"];
         let mut success = false;
-        
+
         for manager in &file_managers {
-            if let Ok(_) = Command::new(manager)
-                .arg(&path)
-                .spawn()
-            {
+            if let Ok(_) = Command::new(manager).arg(&path).spawn() {
                 success = true;
                 break;
             }
         }
-        
+
         if !success {
             // Fallback to opening the parent directory with xdg-open
             let parent_path = std::path::Path::new(&path)
                 .parent()
                 .unwrap_or_else(|| std::path::Path::new("/"))
                 .to_string_lossy();
-            
+
             Command::new("xdg-open")
                 .arg(parent_path.as_ref())
                 .spawn()
                 .map_err(|e| format!("Failed to open file location: {}", e))?;
         }
     }
-    
+
     Ok(())
 }
 
 #[tauri::command]
 fn create_manual_backup(custom_path: Option<String>) -> Result<SaveResult, String> {
     let config_path = resolve_config_path(custom_path)?;
-    
+
     if !Path::new(&config_path).exists() {
         return Ok(SaveResult {
             success: false,
             message: "Configuration file does not exist".to_string(),
         });
     }
-    
+
     // Create timestamped backup
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    
+
     let manual_backup_path = format!("{}.manual_backup_{}", config_path, timestamp);
-    
+
     fs::copy(&config_path, &manual_backup_path)
         .map_err(|e| format!("Failed to create manual backup: {}", e))?;
-    
+
     Ok(SaveResult {
         success: true,
         message: format!("Manual backup created: {}", manual_backup_path),
@@ -464,25 +483,28 @@ fn create_manual_backup(custom_path: Option<String>) -> Result<SaveResult, Strin
 fn get_settings_path() -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        let appdata = env::var("APPDATA")
-            .map_err(|_| "Could not determine APPDATA directory".to_string())?;
+        let appdata =
+            env::var("APPDATA").map_err(|_| "Could not determine APPDATA directory".to_string())?;
         Ok(format!("{}\\mcp-manager\\settings.json", appdata))
     }
-    
+
     #[cfg(target_os = "macos")]
     {
-        let home_dir = env::var("HOME")
-            .map_err(|_| "Could not determine home directory".to_string())?;
-        Ok(format!("{}/Library/Application Support/mcp-manager/settings.json", home_dir))
+        let home_dir =
+            env::var("HOME").map_err(|_| "Could not determine home directory".to_string())?;
+        Ok(format!(
+            "{}/Library/Application Support/mcp-manager/settings.json",
+            home_dir
+        ))
     }
-    
+
     #[cfg(target_os = "linux")]
     {
-        let home_dir = env::var("HOME")
-            .map_err(|_| "Could not determine home directory".to_string())?;
+        let home_dir =
+            env::var("HOME").map_err(|_| "Could not determine home directory".to_string())?;
         Ok(format!("{}/.config/mcp-manager/settings.json", home_dir))
     }
-    
+
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         Err("Unsupported operating system".to_string())
@@ -505,58 +527,74 @@ impl AppState {
             config_path: Arc::new(RwLock::new(String::new())),
         }
     }
-    
+
     pub async fn load_config(&self, custom_path: Option<String>) -> Result<ClaudeConfig, String> {
         let config_path = resolve_config_path(custom_path)?;
         *self.config_path.write().await = config_path.clone();
-        
-        let file_content = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read Claude Desktop config at {}: {}", config_path, e))?;
-        
+
+        let file_content = fs::read_to_string(&config_path).map_err(|e| {
+            format!(
+                "Failed to read Claude Desktop config at {}: {}",
+                config_path, e
+            )
+        })?;
+
         let config: ClaudeConfig = match serde_json::from_str(&file_content) {
             Ok(config) => config,
             Err(e) => {
                 let mut error_info = analyze_json_error(&file_content, &e);
                 let backup_path = format!("{}.backup", config_path);
                 error_info.has_backup = Path::new(&backup_path).exists();
-                let error_json = serde_json::to_string(&error_info)
-                    .unwrap_or_else(|_| format!("{{\"error_type\":\"unknown\",\"message\":\"Failed to parse JSON: {}\"}}", e));
+                let error_json = serde_json::to_string(&error_info).unwrap_or_else(|_| {
+                    format!(
+                        "{{\"error_type\":\"unknown\",\"message\":\"Failed to parse JSON: {}\"}}",
+                        e
+                    )
+                });
                 return Err(format!("JSON_ERROR:{}", error_json));
             }
         };
-        
+
         if let Err(validation_error) = validate_claude_config_structure(&config) {
-            return Err(format!("Configuration validation failed: {}", validation_error));
+            return Err(format!(
+                "Configuration validation failed: {}",
+                validation_error
+            ));
         }
-        
+
         *self.config_cache.write().await = Some(config.clone());
         Ok(config)
     }
-    
+
     pub async fn save_config(&self, config: &ClaudeConfig) -> Result<(), String> {
         let config_path = self.config_path.read().await.clone();
         if config_path.is_empty() {
             return Err("Config path not set".to_string());
         }
-        
+
         // Create backup
         let backup_path = format!("{}.backup", config_path);
         fs::copy(&config_path, &backup_path)
             .map_err(|e| format!("Failed to create backup: {}", e))?;
-        
+
         // Write updated config
         let updated_content = serde_json::to_string_pretty(config)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
-        
+
         fs::write(&config_path, updated_content)
             .map_err(|e| format!("Failed to write config: {}", e))?;
-        
+
         // Update cache
         *self.config_cache.write().await = Some(config.clone());
         Ok(())
     }
-    
-    pub async fn emit_event(&self, app_handle: &tauri::AppHandle, event: &str, payload: serde_json::Value) {
+
+    pub async fn emit_event(
+        &self,
+        app_handle: &tauri::AppHandle,
+        event: &str,
+        payload: serde_json::Value,
+    ) {
         if let Err(e) = app_handle.emit(event, payload) {
             eprintln!("Failed to emit event {}: {}", event, e);
         }
@@ -564,9 +602,12 @@ impl AppState {
 }
 
 // Internal shared functions that both Tauri commands and MCP tools can use
-async fn internal_parse_claude_json(state: &AppState, custom_path: Option<String>) -> Result<Vec<McpServerInfo>, String> {
+async fn internal_parse_claude_json(
+    state: &AppState,
+    custom_path: Option<String>,
+) -> Result<Vec<McpServerInfo>, String> {
     let config = state.load_config(custom_path).await?;
-    
+
     let mut servers = Vec::new();
     for (name, server) in config.mcp_servers {
         let env = server.env.unwrap_or_default();
@@ -577,62 +618,90 @@ async fn internal_parse_claude_json(state: &AppState, custom_path: Option<String
             env,
         });
     }
-    
+
     // Sort servers alphabetically by name
     servers.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(servers)
 }
 
-async fn internal_add_server(state: &AppState, name: String, server_data: McpServerEdit, app_handle: Option<&tauri::AppHandle>) -> Result<SaveResult, String> {
+async fn internal_add_server(
+    state: &AppState,
+    name: String,
+    server_data: McpServerEdit,
+    app_handle: Option<&tauri::AppHandle>,
+) -> Result<SaveResult, String> {
     let mut config = state.load_config(None).await?;
-    
+
     if config.mcp_servers.contains_key(&name) {
         return Ok(SaveResult {
             success: false,
             message: format!("Server '{}' already exists", name),
         });
     }
-    
-    let env = if server_data.env.is_empty() { None } else { Some(server_data.env) };
-    
-    config.mcp_servers.insert(name.clone(), McpServer {
-        command: server_data.command,
-        args: server_data.args,
-        env,
-    });
-    
+
+    let env = if server_data.env.is_empty() {
+        None
+    } else {
+        Some(server_data.env)
+    };
+
+    config.mcp_servers.insert(
+        name.clone(),
+        McpServer {
+            command: server_data.command,
+            args: server_data.args,
+            env,
+        },
+    );
+
     state.save_config(&config).await?;
-    
+
     // Emit event for GUI updates
     if let Some(handle) = app_handle {
-        state.emit_event(handle, "server-added", serde_json::json!({ "name": name })).await;
-        state.emit_event(handle, "config-changed", serde_json::json!({})).await;
+        state
+            .emit_event(handle, "server-added", serde_json::json!({ "name": name }))
+            .await;
+        state
+            .emit_event(handle, "config-changed", serde_json::json!({}))
+            .await;
     }
-    
+
     Ok(SaveResult {
         success: true,
         message: format!("Server '{}' added successfully", name),
     })
 }
 
-async fn internal_delete_server(state: &AppState, name: String, app_handle: Option<&tauri::AppHandle>) -> Result<SaveResult, String> {
+async fn internal_delete_server(
+    state: &AppState,
+    name: String,
+    app_handle: Option<&tauri::AppHandle>,
+) -> Result<SaveResult, String> {
     let mut config = state.load_config(None).await?;
-    
+
     if config.mcp_servers.remove(&name).is_none() {
         return Ok(SaveResult {
             success: false,
             message: format!("Server '{}' not found", name),
         });
     }
-    
+
     state.save_config(&config).await?;
-    
+
     // Emit event for GUI updates
     if let Some(handle) = app_handle {
-        state.emit_event(handle, "server-deleted", serde_json::json!({ "name": name })).await;
-        state.emit_event(handle, "config-changed", serde_json::json!({})).await;
+        state
+            .emit_event(
+                handle,
+                "server-deleted",
+                serde_json::json!({ "name": name }),
+            )
+            .await;
+        state
+            .emit_event(handle, "config-changed", serde_json::json!({}))
+            .await;
     }
-    
+
     Ok(SaveResult {
         success: true,
         message: format!("Server '{}' deleted successfully", name),
@@ -656,11 +725,15 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
         },
         PresetServer {
             name: "time".to_string(),
-            description: "Time and timezone utilities for scheduling and time management".to_string(),
+            description: "Time and timezone utilities for scheduling and time management"
+                .to_string(),
             category: "Utilities".to_string(),
             server_type: ServerType::Uvx,
             command: "uvx".to_string(),
-            args: vec!["mcp-server-time".to_string(), "--local-timezone=UTC".to_string()],
+            args: vec![
+                "mcp-server-time".to_string(),
+                "--local-timezone=UTC".to_string(),
+            ],
             env: None,
             api_keys: vec![],
             requires_api_key: false,
@@ -673,7 +746,12 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
             category: "AI Tools".to_string(),
             server_type: ServerType::Docker,
             command: "docker".to_string(),
-            args: vec!["run".to_string(), "--rm".to_string(), "-i".to_string(), "mcp/sequentialthinking".to_string()],
+            args: vec![
+                "run".to_string(),
+                "--rm".to_string(),
+                "-i".to_string(),
+                "mcp/sequentialthinking".to_string(),
+            ],
             env: None,
             api_keys: vec![],
             requires_api_key: false,
@@ -682,7 +760,8 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
         },
         PresetServer {
             name: "browsermcp".to_string(),
-            description: "Web browsing capabilities for accessing and interacting with websites".to_string(),
+            description: "Web browsing capabilities for accessing and interacting with websites"
+                .to_string(),
             category: "Web Tools".to_string(),
             server_type: ServerType::Npx,
             command: "npx".to_string(),
@@ -699,18 +778,21 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
             category: "Search".to_string(),
             server_type: ServerType::Npx,
             command: "npx".to_string(),
-            args: vec!["-y".to_string(), "@modelcontextprotocol/server-brave-search".to_string()],
-            env: None,
-            api_keys: vec![
-                ApiKeyRequirement {
-                    name: "BRAVE_API_KEY".to_string(),
-                    description: "Get your API key from https://brave.com/search/api/".to_string(),
-                    required: true,
-                }
+            args: vec![
+                "-y".to_string(),
+                "@modelcontextprotocol/server-brave-search".to_string(),
             ],
+            env: None,
+            api_keys: vec![ApiKeyRequirement {
+                name: "BRAVE_API_KEY".to_string(),
+                description: "Get your API key from https://brave.com/search/api/".to_string(),
+                required: true,
+            }],
             requires_api_key: true,
             api_key_name: Some("BRAVE_API_KEY".to_string()),
-            api_key_description: Some("Get your API key from https://brave.com/search/api/".to_string()),
+            api_key_description: Some(
+                "Get your API key from https://brave.com/search/api/".to_string(),
+            ),
         },
         PresetServer {
             name: "openweather".to_string(),
@@ -718,18 +800,25 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
             category: "Weather".to_string(),
             server_type: ServerType::Docker,
             command: "docker".to_string(),
-            args: vec!["run".to_string(), "-i".to_string(), "--rm".to_string(), "-e".to_string(), "OWM_API_KEY".to_string(), "mcp/openweather".to_string()],
-            env: None,
-            api_keys: vec![
-                ApiKeyRequirement {
-                    name: "OWM_API_KEY".to_string(),
-                    description: "Get your API key from https://openweathermap.org/api".to_string(),
-                    required: true,
-                }
+            args: vec![
+                "run".to_string(),
+                "-i".to_string(),
+                "--rm".to_string(),
+                "-e".to_string(),
+                "OWM_API_KEY".to_string(),
+                "mcp/openweather".to_string(),
             ],
+            env: None,
+            api_keys: vec![ApiKeyRequirement {
+                name: "OWM_API_KEY".to_string(),
+                description: "Get your API key from https://openweathermap.org/api".to_string(),
+                required: true,
+            }],
             requires_api_key: true,
             api_key_name: Some("OWM_API_KEY".to_string()),
-            api_key_description: Some("Get your API key from https://openweathermap.org/api".to_string()),
+            api_key_description: Some(
+                "Get your API key from https://openweathermap.org/api".to_string(),
+            ),
         },
         PresetServer {
             name: "context7".to_string(),
@@ -750,7 +839,11 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
             category: "Development".to_string(),
             server_type: ServerType::Uvx,
             command: "uvx".to_string(),
-            args: vec!["--from".to_string(), "git+https://github.com/ckreiling/mcp-server-docker".to_string(), "mcp-server-docker".to_string()],
+            args: vec![
+                "--from".to_string(),
+                "git+https://github.com/ckreiling/mcp-server-docker".to_string(),
+                "mcp-server-docker".to_string(),
+            ],
             env: None,
             api_keys: vec![],
             requires_api_key: false,
@@ -763,13 +856,18 @@ fn get_preset_servers_database() -> Vec<PresetServer> {
             category: "System".to_string(),
             server_type: ServerType::Docker,
             command: "docker".to_string(),
-            args: vec!["run".to_string(), "-i".to_string(), "--rm".to_string(), "mcp/desktop-commander".to_string()],
+            args: vec![
+                "run".to_string(),
+                "-i".to_string(),
+                "--rm".to_string(),
+                "mcp/desktop-commander".to_string(),
+            ],
             env: None,
             api_keys: vec![],
             requires_api_key: false,
             api_key_name: None,
             api_key_description: None,
-        }
+        },
     ]
 }
 
@@ -777,29 +875,42 @@ fn analyze_json_error(_json_content: &str, error: &serde_json::Error) -> JsonErr
     let error_msg = error.to_string();
     let line = error.line();
     let column = error.column();
-    
+
     let (error_type, user_message, suggestion) = if error_msg.contains("EOF while parsing") {
-        ("incomplete", 
-         "The JSON file appears to be incomplete or truncated", 
-         Some("Check if the file ends properly with closing braces }".to_string()))
+        (
+            "incomplete",
+            "The JSON file appears to be incomplete or truncated",
+            Some("Check if the file ends properly with closing braces }".to_string()),
+        )
     } else if error_msg.contains("expected") && error_msg.contains("found") {
-        ("syntax", 
-         "Invalid JSON syntax found", 
-         Some("Check for missing commas, quotes, or brackets around the error location".to_string()))
+        (
+            "syntax",
+            "Invalid JSON syntax found",
+            Some(
+                "Check for missing commas, quotes, or brackets around the error location"
+                    .to_string(),
+            ),
+        )
     } else if error_msg.contains("trailing comma") {
-        ("trailing_comma", 
-         "Found an extra comma at the end of a list or object", 
-         Some("Remove the trailing comma before the closing bracket".to_string()))
+        (
+            "trailing_comma",
+            "Found an extra comma at the end of a list or object",
+            Some("Remove the trailing comma before the closing bracket".to_string()),
+        )
     } else if error_msg.contains("duplicate key") {
-        ("duplicate_key", 
-         "Found duplicate server names in the configuration", 
-         Some("Each server must have a unique name".to_string()))
+        (
+            "duplicate_key",
+            "Found duplicate server names in the configuration",
+            Some("Each server must have a unique name".to_string()),
+        )
     } else {
-        ("unknown", 
-         "JSON parsing error occurred", 
-         Some("Please check your JSON syntax or restore from backup".to_string()))
+        (
+            "unknown",
+            "JSON parsing error occurred",
+            Some("Please check your JSON syntax or restore from backup".to_string()),
+        )
     };
-    
+
     JsonErrorInfo {
         error_type: error_type.to_string(),
         message: user_message.to_string(),
@@ -815,43 +926,47 @@ fn validate_claude_config_structure(config: &ClaudeConfig) -> Result<(), String>
     if config.mcp_servers.is_empty() {
         return Ok(()); // Empty config is valid
     }
-    
+
     // Validate each server configuration
     for (name, server) in &config.mcp_servers {
         if name.trim().is_empty() {
             return Err("Server name cannot be empty".to_string());
         }
-        
+
         if server.command.trim().is_empty() {
             return Err(format!("Server '{}' has an empty command", name));
         }
-        
+
         // Check for common command issues
         if server.command.contains(" ") && !server.command.starts_with("\"") {
             return Err(format!("Server '{}' command contains spaces but is not quoted. Consider moving arguments to the 'args' array", name));
         }
     }
-    
+
     Ok(())
 }
 
-fn save_server_config(name: String, server_data: Option<McpServerEdit>, is_new: bool, custom_path: Option<String>) -> Result<SaveResult, String> {
+fn save_server_config(
+    name: String,
+    server_data: Option<McpServerEdit>,
+    is_new: bool,
+    custom_path: Option<String>,
+) -> Result<SaveResult, String> {
     let config_path = resolve_config_path(custom_path)?;
-    
+
     // Create backup
     let backup_path = format!("{}.backup", config_path);
-    fs::copy(&config_path, &backup_path)
-        .map_err(|e| format!("Failed to create backup: {}", e))?;
-    
+    fs::copy(&config_path, &backup_path).map_err(|e| format!("Failed to create backup: {}", e))?;
+
     // Read current config
-    let file_content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
-    
-    let mut config: ClaudeConfig = serde_json::from_str(&file_content)
-        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
-    
+    let file_content =
+        fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config: {}", e))?;
+
+    let mut config: ClaudeConfig =
+        serde_json::from_str(&file_content).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
     let is_add_or_update = server_data.is_some();
-    
+
     match server_data {
         Some(data) => {
             // Add or update server
@@ -861,15 +976,22 @@ fn save_server_config(name: String, server_data: Option<McpServerEdit>, is_new: 
                     message: format!("Server '{}' already exists", name),
                 });
             }
-            
-            let env = if data.env.is_empty() { None } else { Some(data.env) };
-            
-            config.mcp_servers.insert(name.clone(), McpServer {
-                command: data.command,
-                args: data.args,
-                env,
-            });
-        },
+
+            let env = if data.env.is_empty() {
+                None
+            } else {
+                Some(data.env)
+            };
+
+            config.mcp_servers.insert(
+                name.clone(),
+                McpServer {
+                    command: data.command,
+                    args: data.args,
+                    env,
+                },
+            );
+        }
         None => {
             // Delete server
             if config.mcp_servers.remove(&name).is_none() {
@@ -880,20 +1002,24 @@ fn save_server_config(name: String, server_data: Option<McpServerEdit>, is_new: 
             }
         }
     }
-    
+
     // Write updated config
     let updated_content = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    
+
     fs::write(&config_path, updated_content)
         .map_err(|e| format!("Failed to write config: {}", e))?;
-    
+
     let action = if is_add_or_update {
-        if is_new { "added" } else { "updated" }
+        if is_new {
+            "added"
+        } else {
+            "updated"
+        }
     } else {
         "deleted"
     };
-    
+
     Ok(SaveResult {
         success: true,
         message: format!("Server '{}' {} successfully", name, action),
@@ -903,25 +1029,31 @@ fn save_server_config(name: String, server_data: Option<McpServerEdit>, is_new: 
 fn get_claude_config_path() -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        let appdata = env::var("APPDATA")
-            .map_err(|_| "Could not determine APPDATA directory".to_string())?;
+        let appdata =
+            env::var("APPDATA").map_err(|_| "Could not determine APPDATA directory".to_string())?;
         Ok(format!("{}\\Claude\\claude_desktop_config.json", appdata))
     }
-    
+
     #[cfg(target_os = "macos")]
     {
-        let home_dir = env::var("HOME")
-            .map_err(|_| "Could not determine home directory".to_string())?;
-        Ok(format!("{}/Library/Application Support/Claude/claude_desktop_config.json", home_dir))
+        let home_dir =
+            env::var("HOME").map_err(|_| "Could not determine home directory".to_string())?;
+        Ok(format!(
+            "{}/Library/Application Support/Claude/claude_desktop_config.json",
+            home_dir
+        ))
     }
-    
+
     #[cfg(target_os = "linux")]
     {
-        let home_dir = env::var("HOME")
-            .map_err(|_| "Could not determine home directory".to_string())?;
-        Ok(format!("{}/.config/Claude/claude_desktop_config.json", home_dir))
+        let home_dir =
+            env::var("HOME").map_err(|_| "Could not determine home directory".to_string())?;
+        Ok(format!(
+            "{}/.config/Claude/claude_desktop_config.json",
+            home_dir
+        ))
     }
-    
+
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         Err("Unsupported operating system".to_string())
@@ -944,16 +1076,38 @@ fn resolve_config_path(custom_path: Option<String>) -> Result<String, String> {
 pub fn run() {
     // Create the shared state for the application
     let app_state = AppState::new();
-    
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet, parse_claude_json, get_server_details, update_server, add_server, delete_server, get_default_config_path, load_app_settings, save_app_settings, get_settings_path, get_preset_servers, get_preset_servers_by_category, get_preset_server_categories, get_preset_server_by_name, get_preset_servers_by_type, get_server_types, validate_server_config, get_backup_info, restore_from_backup, create_manual_backup, open_file_location])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            parse_claude_json,
+            get_server_details,
+            update_server,
+            add_server,
+            delete_server,
+            get_default_config_path,
+            load_app_settings,
+            save_app_settings,
+            get_settings_path,
+            get_preset_servers,
+            get_preset_servers_by_category,
+            get_preset_server_categories,
+            get_preset_server_by_name,
+            get_preset_servers_by_type,
+            get_server_types,
+            validate_server_config,
+            get_backup_info,
+            restore_from_backup,
+            create_manual_backup,
+            open_file_location
+        ])
         .setup(|_app| {
             println!("🚀 MCP Manager started with integrated MCP server support");
             println!("📱 Desktop GUI: Available");
             println!("🔗 MCP Server: Ready for Claude Desktop integration");
-            
+
             // Optionally start MCP server in background - uncomment if needed
             let app_state = _app.state::<AppState>();
             let mcp_state = app_state.inner().clone();
@@ -962,7 +1116,7 @@ pub fn run() {
                     eprintln!("MCP server error: {}", e);
                 }
             });
-            
+
             Ok(())
         })
         .run(tauri::generate_context!())
