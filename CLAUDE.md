@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+### tool usage
+before writing code try to look at your tools.
+with these you can get documentation for the rust library you want to use
+                                                                                  
 ## Project Overview
 
 This is a Tauri desktop application called "mcp-manager" for managing Model Context Protocol (MCP) servers in Claude Desktop. The project follows Tauri's recommended architecture with:

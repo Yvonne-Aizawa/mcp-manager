@@ -1,10 +1,16 @@
 use serde::{Deserialize, Serialize};
+use tauri::Manager as _;
 use std::collections::HashMap;
 use std::fs;
 use std::env;
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tauri::Emitter;
 
-#[derive(Debug, Serialize, Deserialize)]
+pub mod mcp_server;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct McpServer {
     command: String,
     args: Vec<String>,
@@ -12,10 +18,10 @@ struct McpServer {
     env: Option<HashMap<String, String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ClaudeConfig {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ClaudeConfig {
     #[serde(rename = "mcpServers")]
-    mcp_servers: HashMap<String, McpServer>,
+    pub mcp_servers: HashMap<String, McpServer>,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,11 +64,11 @@ struct BackupInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct AppSettings {
+pub struct AppSettings {
     #[serde(rename = "claudeConfigPath")]
-    claude_config_path: String,
+    pub claude_config_path: String,
     #[serde(rename = "darkMode")]
-    dark_mode: bool,
+    pub dark_mode: bool,
 }
 
 impl Default for AppSettings {
@@ -149,51 +155,8 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn parse_claude_json(custom_path: Option<String>) -> Result<Vec<McpServerInfo>, String> {
-    let config_path = resolve_config_path(custom_path)?;
-    
-    let file_content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read Claude Desktop config at {}: {}", config_path, e))?;
-    
-    // Enhanced JSON parsing with better error messages
-    let config: ClaudeConfig = match serde_json::from_str(&file_content) {
-        Ok(config) => config,
-        Err(e) => {
-            let mut error_info = analyze_json_error(&file_content, &e);
-            
-            // Check if backup exists
-            let backup_path = format!("{}.backup", config_path);
-            error_info.has_backup = Path::new(&backup_path).exists();
-            
-            // Return detailed error information as JSON string
-            let error_json = serde_json::to_string(&error_info)
-                .unwrap_or_else(|_| format!("{{\"error_type\":\"unknown\",\"message\":\"Failed to parse JSON: {}\"}}", e));
-            return Err(format!("JSON_ERROR:{}", error_json));
-        }
-    };
-    
-    // Validate the structure after successful parsing
-    if let Err(validation_error) = validate_claude_config_structure(&config) {
-        return Err(format!("Configuration validation failed: {}", validation_error));
-    }
-    
-    let mut servers = Vec::new();
-    
-    for (name, server) in config.mcp_servers {
-        let env = server.env.unwrap_or_default();
-        
-        servers.push(McpServerInfo {
-            name,
-            command: server.command,
-            args: server.args,
-            env,
-        });
-    }
-    
-    // Sort servers alphabetically by name
-    servers.sort_by(|a, b| a.name.cmp(&b.name));
-    
-    Ok(servers)
+async fn parse_claude_json(state: tauri::State<'_, AppState>, custom_path: Option<String>) -> Result<Vec<McpServerInfo>, String> {
+    internal_parse_claude_json(&state, custom_path).await
 }
 
 #[tauri::command]
@@ -222,13 +185,13 @@ fn update_server(name: String, server_data: McpServerEdit, custom_path: Option<S
 }
 
 #[tauri::command]
-fn add_server(name: String, server_data: McpServerEdit, custom_path: Option<String>) -> Result<SaveResult, String> {
-    save_server_config(name, Some(server_data), true, custom_path)
+async fn add_server(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, name: String, server_data: McpServerEdit) -> Result<SaveResult, String> {
+    internal_add_server(&state, name, server_data, Some(&app_handle)).await
 }
 
 #[tauri::command]
-fn delete_server(name: String, custom_path: Option<String>) -> Result<SaveResult, String> {
-    save_server_config(name, None, false, custom_path)
+async fn delete_server(state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle, name: String) -> Result<SaveResult, String> {
+    internal_delete_server(&state, name, Some(&app_handle)).await
 }
 
 #[tauri::command]
@@ -524,6 +487,156 @@ fn get_settings_path() -> Result<String, String> {
     {
         Err("Unsupported operating system".to_string())
     }
+}
+
+// Shared state for real-time sync between GUI and MCP server
+#[derive(Clone)]
+pub struct AppState {
+    pub config_cache: Arc<RwLock<Option<ClaudeConfig>>>,
+    pub settings_cache: Arc<RwLock<AppSettings>>,
+    pub config_path: Arc<RwLock<String>>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            config_cache: Arc::new(RwLock::new(None)),
+            settings_cache: Arc::new(RwLock::new(AppSettings::default())),
+            config_path: Arc::new(RwLock::new(String::new())),
+        }
+    }
+    
+    pub async fn load_config(&self, custom_path: Option<String>) -> Result<ClaudeConfig, String> {
+        let config_path = resolve_config_path(custom_path)?;
+        *self.config_path.write().await = config_path.clone();
+        
+        let file_content = fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read Claude Desktop config at {}: {}", config_path, e))?;
+        
+        let config: ClaudeConfig = match serde_json::from_str(&file_content) {
+            Ok(config) => config,
+            Err(e) => {
+                let mut error_info = analyze_json_error(&file_content, &e);
+                let backup_path = format!("{}.backup", config_path);
+                error_info.has_backup = Path::new(&backup_path).exists();
+                let error_json = serde_json::to_string(&error_info)
+                    .unwrap_or_else(|_| format!("{{\"error_type\":\"unknown\",\"message\":\"Failed to parse JSON: {}\"}}", e));
+                return Err(format!("JSON_ERROR:{}", error_json));
+            }
+        };
+        
+        if let Err(validation_error) = validate_claude_config_structure(&config) {
+            return Err(format!("Configuration validation failed: {}", validation_error));
+        }
+        
+        *self.config_cache.write().await = Some(config.clone());
+        Ok(config)
+    }
+    
+    pub async fn save_config(&self, config: &ClaudeConfig) -> Result<(), String> {
+        let config_path = self.config_path.read().await.clone();
+        if config_path.is_empty() {
+            return Err("Config path not set".to_string());
+        }
+        
+        // Create backup
+        let backup_path = format!("{}.backup", config_path);
+        fs::copy(&config_path, &backup_path)
+            .map_err(|e| format!("Failed to create backup: {}", e))?;
+        
+        // Write updated config
+        let updated_content = serde_json::to_string_pretty(config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        
+        fs::write(&config_path, updated_content)
+            .map_err(|e| format!("Failed to write config: {}", e))?;
+        
+        // Update cache
+        *self.config_cache.write().await = Some(config.clone());
+        Ok(())
+    }
+    
+    pub async fn emit_event(&self, app_handle: &tauri::AppHandle, event: &str, payload: serde_json::Value) {
+        if let Err(e) = app_handle.emit(event, payload) {
+            eprintln!("Failed to emit event {}: {}", event, e);
+        }
+    }
+}
+
+// Internal shared functions that both Tauri commands and MCP tools can use
+async fn internal_parse_claude_json(state: &AppState, custom_path: Option<String>) -> Result<Vec<McpServerInfo>, String> {
+    let config = state.load_config(custom_path).await?;
+    
+    let mut servers = Vec::new();
+    for (name, server) in config.mcp_servers {
+        let env = server.env.unwrap_or_default();
+        servers.push(McpServerInfo {
+            name,
+            command: server.command,
+            args: server.args,
+            env,
+        });
+    }
+    
+    // Sort servers alphabetically by name
+    servers.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(servers)
+}
+
+async fn internal_add_server(state: &AppState, name: String, server_data: McpServerEdit, app_handle: Option<&tauri::AppHandle>) -> Result<SaveResult, String> {
+    let mut config = state.load_config(None).await?;
+    
+    if config.mcp_servers.contains_key(&name) {
+        return Ok(SaveResult {
+            success: false,
+            message: format!("Server '{}' already exists", name),
+        });
+    }
+    
+    let env = if server_data.env.is_empty() { None } else { Some(server_data.env) };
+    
+    config.mcp_servers.insert(name.clone(), McpServer {
+        command: server_data.command,
+        args: server_data.args,
+        env,
+    });
+    
+    state.save_config(&config).await?;
+    
+    // Emit event for GUI updates
+    if let Some(handle) = app_handle {
+        state.emit_event(handle, "server-added", serde_json::json!({ "name": name })).await;
+        state.emit_event(handle, "config-changed", serde_json::json!({})).await;
+    }
+    
+    Ok(SaveResult {
+        success: true,
+        message: format!("Server '{}' added successfully", name),
+    })
+}
+
+async fn internal_delete_server(state: &AppState, name: String, app_handle: Option<&tauri::AppHandle>) -> Result<SaveResult, String> {
+    let mut config = state.load_config(None).await?;
+    
+    if config.mcp_servers.remove(&name).is_none() {
+        return Ok(SaveResult {
+            success: false,
+            message: format!("Server '{}' not found", name),
+        });
+    }
+    
+    state.save_config(&config).await?;
+    
+    // Emit event for GUI updates
+    if let Some(handle) = app_handle {
+        state.emit_event(handle, "server-deleted", serde_json::json!({ "name": name })).await;
+        state.emit_event(handle, "config-changed", serde_json::json!({})).await;
+    }
+    
+    Ok(SaveResult {
+        success: true,
+        message: format!("Server '{}' deleted successfully", name),
+    })
 }
 
 fn get_preset_servers_database() -> Vec<PresetServer> {
@@ -829,9 +942,29 @@ fn resolve_config_path(custom_path: Option<String>) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Create the shared state for the application
+    let app_state = AppState::new();
+    
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(app_state)
         .invoke_handler(tauri::generate_handler![greet, parse_claude_json, get_server_details, update_server, add_server, delete_server, get_default_config_path, load_app_settings, save_app_settings, get_settings_path, get_preset_servers, get_preset_servers_by_category, get_preset_server_categories, get_preset_server_by_name, get_preset_servers_by_type, get_server_types, validate_server_config, get_backup_info, restore_from_backup, create_manual_backup, open_file_location])
+        .setup(|_app| {
+            println!("🚀 MCP Manager started with integrated MCP server support");
+            println!("📱 Desktop GUI: Available");
+            println!("🔗 MCP Server: Ready for Claude Desktop integration");
+            
+            // Optionally start MCP server in background - uncomment if needed
+            let app_state = _app.state::<AppState>();
+            let mcp_state = app_state.inner().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = mcp_server::start_mcp_server(mcp_state).await {
+                    eprintln!("MCP server error: {}", e);
+                }
+            });
+            
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

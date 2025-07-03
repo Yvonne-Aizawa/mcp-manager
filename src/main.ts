@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 interface McpServerInfo {
   name: string;
@@ -1311,12 +1312,53 @@ async function handleImportSubmit(e: Event) {
 (window as any).handleModalCancel = handleModalCancel;
 (window as any).closeNotificationModal = closeNotificationModal;
 
+// Set up real-time event listeners for MCP server integration
+function setupRealtimeEventListeners() {
+  // Listen for configuration changes from MCP server operations
+  listen('config-changed', (event) => {
+    console.log('Configuration changed via MCP server:', event.payload);
+    // Reload the server list to reflect changes
+    loadMcpServers();
+  });
+  
+  // Listen for individual server additions
+  listen('server-added', (event) => {
+    console.log('Server added via MCP server:', event.payload);
+    // Reload the server list to show new server
+    loadMcpServers();
+  });
+  
+  // Listen for individual server deletions
+  listen('server-deleted', (event) => {
+    console.log('Server deleted via MCP server:', event.payload);
+    // Reload the server list to remove deleted server
+    loadMcpServers();
+  });
+  
+  // Listen for server updates
+  listen('server-updated', (event) => {
+    console.log('Server updated via MCP server:', event.payload);
+    // Reload the server list to show updated server
+    loadMcpServers();
+  });
+  
+  // Listen for settings changes
+  listen('settings-changed', (event) => {
+    console.log('Settings changed via MCP server:', event.payload);
+    // Reload settings to reflect changes
+    loadSettings();
+  });
+}
+
 window.addEventListener("DOMContentLoaded", async () => {
   mcpListEl = document.querySelector("#mcp-list");
   modalEl = document.querySelector("#modal");
   
   // Load settings first
   await loadSettings();
+  
+  // Set up real-time event listeners for MCP server integration
+  setupRealtimeEventListeners();
   
   // Attach settings button event listener
   document.querySelector("#settings-btn")?.addEventListener("click", showSettingsModal);
